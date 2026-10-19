@@ -28,6 +28,65 @@ courses, assignments, grades, and announcements from the command line.
   (dropbox + LTI links), grades, and announcements.
 - **Docker-ready** - build the bundled image and run it with your env and a mounted state volume.
 
+## Limitations
+
+- **TOTP only, no push notifications.** Login works only if your Solis-id MFA uses a
+  time-based code (TOTP) from an authenticator app you set up yourself (Aegis, 2FAS,
+  Google Authenticator, Bitwarden, 1Password, etc.). If you approve logins with a push
+  notification in the university's app, the CLI can't log in: it has no way to tap
+  "approve". You need to enrol a TOTP authenticator as an MFA method (see
+  [Getting your TOTP secret](#getting-your-totp-secret)).
+- **UU only.** The login flow is written for Utrecht University's Solis-id login page.
+  Other institutions' Brightspace instances use different login pages and won't work
+  without code changes.
+- **Can break without warning.** The CLI drives the login pages and Brightspace in a
+  headless browser. If UU or D2L changes those pages, login or sync may stop working
+  until the code is updated.
+
+## Getting your TOTP secret
+
+The CLI generates MFA codes itself, so it needs the secret key behind your
+authenticator entry. This is the same key your authenticator app stores when you scan
+the QR code. It is usually a string of 16 to 32 letters A-Z and digits 2-7, e.g.
+`JBSWY3DPEHPK3PXP`.
+
+**Option A: enrol a new authenticator (recommended)**
+
+1. Sign in to UU's MFA / Solis-id self-service page (check the UU IT help pages for the
+   current link) and choose to add a new authenticator app (TOTP) method.
+2. When the QR code appears, look for a link like "Can't scan?" or "Enter key
+   manually". It shows the secret as text. Copy it.
+3. If only a QR code is shown, save it as an image and decode it, e.g.
+   `zbarimg qr.png`. You get a URI like
+   `otpauth://totp/UU:solisid?secret=JBSWY3DPEHPK3PXP&issuer=UU`. The value after
+   `secret=` is your secret.
+4. Also add the same secret (or QR code) to an authenticator app on your phone, so you
+   can still log in by hand. Finish the enrolment with a code from that app.
+
+**Option B: export from an authenticator you already use**
+
+Some apps can show or export existing secrets:
+- **Aegis / 2FAS:** export the vault (unencrypted, temporarily) or open the entry's
+  details. The secret is in the export file.
+- **Bitwarden / 1Password / KeePassXC:** edit the entry and copy the TOTP/OTP field.
+- **Google Authenticator:** "Transfer accounts" gives a QR with an
+  `otpauth-migration://` URI. That URI is encoded, so you need a decoder tool to get
+  the secret out. Option A is usually easier.
+- **Push-only apps** generally don't expose a secret. Use Option A.
+
+**Check it** before you run the CLI. This prints the current code; compare it with
+your phone:
+
+```sh
+python3 -c "import pyotp, os; print(pyotp.TOTP(os.environ['BRIGHTSPACE_TOTP_SECRET']).now())"
+```
+
+**Keep it safe.** Anyone who has your password and this secret can pass your MFA.
+Don't commit it, paste it into chats or issues, or leave it in shell history: put the
+`export` lines in a file only you can read (`chmod 600`), outside the repo. If you
+think the secret has leaked, remove that authenticator from your MFA settings and
+enrol a new one.
+
 ## Requirements and install
 
 Python 3.10+, pip, and Chromium with its system dependencies.
@@ -113,7 +172,15 @@ another subcommand. Reuse the state volume across runs.
 
 This is an unofficial, community tool. It is NOT affiliated with, endorsed by,
 or supported by Utrecht University, D2L / Brightspace, or any other institution.
+"Utrecht University", "Solis-id" and "Brightspace" are used only to describe what
+the tool works with.
 
 It is provided AS IS, with no warranty. There is NO guarantee that it works,
-keeps working, or produces correct results. Use at your own risk, and comply
-with your institution's terms of use.
+keeps working, or produces correct results. Use at your own risk.
+
+You are responsible for using it in accordance with your institution's regulations,
+including Utrecht University's IT acceptable-use rules, its rules on handling your
+account credentials and MFA, and the copyright and terms of use of course materials.
+Only access courses and content you are authorised to access. Downloaded materials
+are for your personal study. Don't redistribute them unless the rights holder allows
+it. If you're unsure whether something is allowed, ask your institution first.
