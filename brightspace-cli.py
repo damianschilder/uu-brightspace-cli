@@ -1027,34 +1027,45 @@ def _get_token(ctx: BrowserContext, args) -> Optional[str]:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
+    def add_global_args(parser, suppress=False):
+        # Subparsers use SUPPRESS so they don't overwrite values given before the subcommand
+        d = (lambda v: argparse.SUPPRESS) if suppress else (lambda v: v)
+        parser.add_argument("--session-dir", default=d(str(SESSION_DIR)))
+        parser.add_argument("--solisid",  default=d(os.environ.get("BRIGHTSPACE_SOLISID")))
+        parser.add_argument("--password", default=d(os.environ.get("BRIGHTSPACE_PASSWORD", "")))
+        parser.add_argument("--totp",     default=d(os.environ.get("BRIGHTSPACE_TOTP_SECRET", "")),
+                            help="TOTP secret key (base32), not a 6-digit code")
+        parser.add_argument("--token",    default=d(None), help="Bearer token (skips login if provided)")
+
     p = argparse.ArgumentParser(description="Brightspace CLI (pure Playwright)")
-    p.add_argument("--session-dir", default=str(SESSION_DIR))
-    p.add_argument("--solisid", default=os.environ.get("BRIGHTSPACE_SOLISID"))
-    p.add_argument("--password",  default=os.environ.get("BRIGHTSPACE_PASSWORD", ""))
-    p.add_argument("--totp",      default=os.environ.get("BRIGHTSPACE_TOTP_SECRET", ""))
-    p.add_argument("--token",    default=None, help="Bearer token (skips login if provided)")
+    add_global_args(p)
+    common = argparse.ArgumentParser(add_help=False)
+    add_global_args(common, suppress=True)
 
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("login",       help="Authenticate and cache token")
-    sub.add_parser("courses",     help="List enrolled courses")
-    toc = sub.add_parser("toc",          help="Show course TOC")
+    def cmd(*a, **kw):
+        return sub.add_parser(*a, parents=[common], **kw)
+
+    cmd("login",       help="Authenticate and cache token")
+    cmd("courses",     help="List enrolled courses")
+    toc = cmd("toc",          help="Show course TOC")
     toc.add_argument("--org-unit", default=os.environ.get("BRIGHTSPACE_ORG_UNIT"))
-    ass = sub.add_parser("assignments",  help="List assignments (dropbox + LTI links)")
+    ass = cmd("assignments",  help="List assignments (dropbox + LTI links)")
     ass.add_argument("--org-unit", default=os.environ.get("BRIGHTSPACE_ORG_UNIT"))
-    grd = sub.add_parser("grades",       help="Show grades")
+    grd = cmd("grades",       help="Show grades")
     grd.add_argument("--org-unit", default=os.environ.get("BRIGHTSPACE_ORG_UNIT"))
-    nws = sub.add_parser("news",         help="Show announcements")
+    nws = cmd("news",         help="Show announcements")
     nws.add_argument("--org-unit", default=os.environ.get("BRIGHTSPACE_ORG_UNIT"))
-    sch = sub.add_parser("schedule",     help="Download Google Sheets from course content")
+    sch = cmd("schedule",     help="Download Google Sheets from course content")
     sch.add_argument("-o", "--output",   default=None)
     sch.add_argument("--org-unit", default=os.environ.get("BRIGHTSPACE_ORG_UNIT"))
-    ddl = sub.add_parser("deadlines",    help="Show all upcoming deadlines")
+    ddl = cmd("deadlines",    help="Show all upcoming deadlines")
     ddl.add_argument("--org-unit", default=os.environ.get("BRIGHTSPACE_ORG_UNIT"))
-    syn = sub.add_parser("sync",         help="Sync all course content")
+    syn = cmd("sync",         help="Sync all course content")
     syn.add_argument("--org-unit", default=os.environ.get("BRIGHTSPACE_ORG_UNIT"))
     syn.add_argument("-o", "--output",   default=None)
 
-    syn_all = sub.add_parser("sync-all", help="Sync every enrolled course")
+    syn_all = cmd("sync-all", help="Sync every enrolled course")
     syn_all.add_argument("-o", "--output", default=None)
     syn_all.add_argument("--dry-run", action="store_true",
                          help="List selected courses without downloading content")
@@ -1065,6 +1076,9 @@ def main():
         p.error("--org-unit or BRIGHTSPACE_ORG_UNIT required for content commands")
     if args.cmd == "login" and not args.token and not args.solisid:
         p.error("--solisid or BRIGHTSPACE_SOLISID required for login")
+    if args.totp and args.totp.strip().isdigit():
+        p.error("--totp expects your TOTP secret key (e.g. JBSWY3DPEHPK3PXP), "
+                "not a one-time code; see README 'Getting your TOTP secret'")
 
     with sync_playwright() as pw:
         ctx = pw.chromium.launch_persistent_context(

@@ -47,14 +47,20 @@ next to the repo).
 The CLI generates MFA codes itself, so it needs the secret key behind your
 authenticator entry (e.g. `JBSWY3DPEHPK3PXP`).
 
-1. In UU's MFA / Solis-id self-service page, add a new authenticator app (TOTP).
-2. At the QR code, click "Can't scan?" / "Enter key manually" and copy the key. Or
-   decode the QR with `zbarimg qr.png` and take the `secret=` value from the
-   `otpauth://` URI.
-3. Add the same key to your phone's authenticator too, and finish enrolment with it.
+[MySolisID](https://mysolisid.uu.nl) allows only one authenticator, so you either
+export the secret from your current app or set the authenticator up again.
 
-Already using Aegis, 2FAS, Bitwarden, 1Password or KeePassXC? You can copy the secret
-from the entry.
+**Export from your current app.** Aegis, 2FAS, Bitwarden, 1Password and KeePassXC
+show the secret in the entry's details or export. Google Authenticator's "Transfer
+accounts" QR holds an encoded `otpauth-migration://` URI that needs a decoder tool.
+
+**Or set it up again.**
+
+1. In MySolisID > Two-factor authentication, choose "Deactivate with Authenticator".
+2. Activate it again. At the QR code, copy the key shown for manual entry, or decode
+   the QR with `zbarimg qr.png` and take the `secret=` value from the `otpauth://` URI.
+3. Scan the same QR with your phone's authenticator and finish activation with a code
+   from it. Phone and CLI now share the same secret.
 
 ## Usage
 
