@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import getpass
+import hashlib
 import json
 import os
 import re
@@ -17,6 +20,8 @@ import csv
 
 import pyotp
 import requests
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from playwright.sync_api import sync_playwright, BrowserContext, Page
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
@@ -25,8 +30,14 @@ SESSION_DIR = Path(os.environ.get("BRIGHTSPACE_SESSION_DIR",
                          str(SCRIPT_DIR.parent / "brightspace" / "session")))
 TOKEN_FILE = Path(os.environ.get("BRIGHTSPACE_TOKEN_FILE",
                          str(SCRIPT_DIR.parent / "brightspace" / "token.json")))
-SESSION_DIR.mkdir(parents=True, exist_ok=True)
-TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+CREDS_FILE = Path(os.environ.get("BRIGHTSPACE_CREDS_FILE",
+                         str(TOKEN_FILE.parent / "credentials.enc")))
+# Session cookies, the token and debug dumps are bearer secrets: owner-only.
+SESSION_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+SESSION_DIR.chmod(0o700)
+TOKEN_FILE.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+if TOKEN_FILE.exists():
+    TOKEN_FILE.chmod(0o600)
 
 # ── Auth constants ─────────────────────────────────────────────────────────────
 BASE_URL  = os.environ.get("BRIGHTSPACE_BASE_URL", "https://uu.brightspace.com").rstrip("/")
@@ -34,6 +45,56 @@ BASE_URL  = os.environ.get("BRIGHTSPACE_BASE_URL", "https://uu.brightspace.com")
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def totp(secret: str) -> str:
     return pyotp.TOTP(secret).now()
+
+def write_private(path: Path, data: str) -> None:
+    """Write a file readable only by the owner (also tightens an existing file)."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(data)
+    path.chmod(0o600)
+
+# ── Encrypted credentials ──────────────────────────────────────────────────────
+# scrypt(passphrase) -> AES-256-GCM over {"solisid","password","totp"}.
+SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**15, 8, 1
+
+def _creds_key(passphrase: str, salt: bytes, n: int, r: int, p: int) -> bytes:
+    return hashlib.scrypt(passphrase.encode(), salt=salt, n=n, r=r, p=p,
+                          maxmem=256 * 1024 * 1024, dklen=32)
+
+def _passphrase(prompt: str = "Credentials passphrase: ") -> str:
+    # BRIGHTSPACE_PASSPHRASE allows non-interactive runs (cron, Docker).
+    return os.environ.get("BRIGHTSPACE_PASSPHRASE") or getpass.getpass(prompt)
+
+def save_creds(creds: dict, passphrase: str) -> None:
+    salt, nonce = os.urandom(16), os.urandom(12)
+    key = _creds_key(passphrase, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P)
+    ct = AESGCM(key).encrypt(nonce, json.dumps(creds).encode(), None)
+    b64 = lambda b: base64.b64encode(b).decode()
+    write_private(CREDS_FILE, json.dumps({
+        "v": 1, "kdf": "scrypt", "n": SCRYPT_N, "r": SCRYPT_R, "p": SCRYPT_P,
+        "salt": b64(salt), "nonce": b64(nonce), "ct": b64(ct),
+    }))
+
+def load_creds() -> dict:
+    blob = json.loads(CREDS_FILE.read_text())
+    unb64 = base64.b64decode
+    key = _creds_key(_passphrase(), unb64(blob["salt"]),
+                     blob["n"], blob["r"], blob["p"])
+    try:
+        return json.loads(AESGCM(key).decrypt(unb64(blob["nonce"]),
+                                              unb64(blob["ct"]), None))
+    except InvalidTag:
+        sys.exit(f"ERROR: wrong passphrase or corrupted {CREDS_FILE}")
+
+def have_creds(args) -> bool:
+    """Fill missing login details from the encrypted credentials file, if any."""
+    if not (args.solisid and args.password and args.totp) and CREDS_FILE.exists():
+        creds = load_creds()
+        args.solisid  = args.solisid  or creds.get("solisid")
+        args.password = args.password or creds.get("password", "")
+        args.totp     = args.totp     or creds.get("totp", "")
+    return bool(args.password and args.totp)
 
 def load_token() -> dict | None:
     if not TOKEN_FILE.exists():
@@ -44,18 +105,34 @@ def load_token() -> dict | None:
         return None
 
 def save_token(token: str) -> None:
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_FILE.write_text(json.dumps({
+    write_private(TOKEN_FILE, json.dumps({
         "token": token,
         "savedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "expiresIn": 28800,
     }))
 
+EXPIRED_MSG = ("ERROR: Brightspace token expired. "
+               "Run 'brightspace-cli.py login' to get a new one.")
+
+def token_expired(token: str, margin: int = 60) -> bool:
+    """True if the token's JWT 'exp' claim is in the past (or within margin seconds)."""
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        return claims["exp"] <= time.time() + margin
+    except Exception:
+        return False  # not a JWT we can read; let the API decide
+
 def extract_token(ctx: BrowserContext) -> str | None:
     """
     Pull D2L.Fetch.Tokens from localStorage via Playwright.
     Handles cross-origin restrictions (skip pages where localStorage is inaccessible).
+    Expired tokens left over in localStorage are ignored.
     """
+    tok = _extract_token(ctx)
+    return tok if tok and not token_expired(tok) else None
+
+def _extract_token(ctx: BrowserContext) -> str | None:
     for page in ctx.pages:
         try:
             raw = page.evaluate(
@@ -245,6 +322,7 @@ def api_fetch(ctx: BrowserContext, url: str, token: str,
                     {{ headers: {{ "Authorization": "Bearer {token}",
                                    "Accept": "application/json" }} }}
                 );
+                if (r.status === 401) return {{ "__unauthorized__": true }};
                 const text = await r.text();
                 if (r.status === 204 || !text.trim()) return null;
                 try {{
@@ -254,10 +332,12 @@ def api_fetch(ctx: BrowserContext, url: str, token: str,
                 }}
             }}
         """)
-        return data
     except Exception as e:
         print(f"  ! API {url}: {e}", file=sys.stderr)
         return None
+    if isinstance(data, dict) and data.get("__unauthorized__"):
+        sys.exit(EXPIRED_MSG)
+    return data
 
 # ── Commands ───────────────────────────────────────────────────────────────────
 def cmd_login(ctx: BrowserContext, args) -> int:
@@ -656,12 +736,14 @@ def _sync_course(ctx: BrowserContext, args, ou: str, output: Optional[str]) -> t
         if fresh_token:
             save_token(fresh_token)
         token = fresh_token or (cached or {}).get("token", "")
+        if token and token_expired(token):
+            token = ""
         if token:
             print("[SYNC] Reusing authenticated browser session.", file=sys.stderr)
 
     if not token:
-        if not args.password or not args.totp:
-            print("ERROR: --password and --totp required for sync (no authenticated session).", file=sys.stderr)
+        if not have_creds(args):
+            print("ERROR: --password and --totp (or save-creds) required for sync (no authenticated session).", file=sys.stderr)
             return 1, 0, 0
         print("[SYNC] Session expired — fresh login...", file=sys.stderr)
         do_login(ctx, args.solisid, args.password, args.totp)
@@ -1015,6 +1097,32 @@ def _sync_course(ctx: BrowserContext, args, ou: str, output: Optional[str]) -> t
 
     return 0, n_files, skipped
 
+def cmd_save_creds(args) -> int:
+    """Prompt for login details and store them encrypted in CREDS_FILE."""
+    solisid  = args.solisid  or input("Solis-id: ").strip()
+    password = args.password or getpass.getpass("Password: ")
+    secret   = (args.totp or getpass.getpass("TOTP secret: ")).replace(" ", "").upper()
+    try:
+        totp(secret)
+    except Exception:
+        print("ERROR: TOTP secret is not valid base32 (e.g. JBSWY3DPEHPK3PXP).",
+              file=sys.stderr)
+        return 1
+    if not (solisid and password):
+        print("ERROR: Solis-id and password are required.", file=sys.stderr)
+        return 1
+    passphrase = _passphrase("New passphrase: ")
+    if not os.environ.get("BRIGHTSPACE_PASSPHRASE"):
+        if passphrase != getpass.getpass("Repeat passphrase: "):
+            print("ERROR: Passphrases do not match.", file=sys.stderr)
+            return 1
+    if len(passphrase) < 8:
+        print("ERROR: Use a passphrase of at least 8 characters.", file=sys.stderr)
+        return 1
+    save_creds({"solisid": solisid, "password": password, "totp": secret}, passphrase)
+    print(f"Credentials encrypted to {CREDS_FILE}", file=sys.stderr)
+    return 0
+
 # ── Token helper ───────────────────────────────────────────────────────────────
 def _get_token(ctx: BrowserContext, args) -> Optional[str]:
     token = (args.token
@@ -1032,9 +1140,10 @@ def main():
         d = (lambda v: argparse.SUPPRESS) if suppress else (lambda v: v)
         parser.add_argument("--session-dir", default=d(str(SESSION_DIR)))
         parser.add_argument("--solisid",  default=d(os.environ.get("BRIGHTSPACE_SOLISID")))
-        parser.add_argument("--password", default=d(os.environ.get("BRIGHTSPACE_PASSWORD", "")))
+        parser.add_argument("--password", default=d(os.environ.get("BRIGHTSPACE_PASSWORD", "")),
+                            help="Visible in `ps` and shell history; prefer save-creds")
         parser.add_argument("--totp",     default=d(os.environ.get("BRIGHTSPACE_TOTP_SECRET", "")),
-                            help="TOTP secret key (base32), not a 6-digit code")
+                            help="TOTP secret key (base32), not a 6-digit code; prefer save-creds")
         parser.add_argument("--token",    default=d(None), help="Bearer token (skips login if provided)")
 
     p = argparse.ArgumentParser(description="Brightspace CLI (pure Playwright)")
@@ -1046,6 +1155,7 @@ def main():
     def cmd(*a, **kw):
         return sub.add_parser(*a, parents=[common], **kw)
 
+    cmd("save-creds",  help="Store Solis-id, password and TOTP secret encrypted")
     cmd("login",       help="Authenticate and cache token")
     cmd("courses",     help="List enrolled courses")
     toc = cmd("toc",          help="Show course TOC")
@@ -1072,13 +1182,16 @@ def main():
 
     args = p.parse_args()
 
-    if args.cmd not in ("login", "courses", "sync-all") and not args.org_unit:
-        p.error("--org-unit or BRIGHTSPACE_ORG_UNIT required for content commands")
-    if args.cmd == "login" and not args.token and not args.solisid:
-        p.error("--solisid or BRIGHTSPACE_SOLISID required for login")
     if args.totp and args.totp.strip().isdigit():
         p.error("--totp expects your TOTP secret key (e.g. JBSWY3DPEHPK3PXP), "
                 "not a one-time code; see README 'Getting your TOTP secret'")
+    if args.cmd == "save-creds":
+        sys.exit(cmd_save_creds(args))
+    if args.cmd not in ("login", "courses", "sync-all") and not args.org_unit:
+        p.error("--org-unit or BRIGHTSPACE_ORG_UNIT required for content commands")
+    if (args.cmd == "login" and not args.token and not args.solisid
+            and not CREDS_FILE.exists()):
+        p.error("--solisid or BRIGHTSPACE_SOLISID (or save-creds) required for login")
 
     with sync_playwright() as pw:
         ctx = pw.chromium.launch_persistent_context(
@@ -1108,8 +1221,8 @@ def main():
             print("Token provided and cached.", file=sys.stderr)
 
         elif args.cmd == "login":
-            if not args.password or not args.totp:
-                print("ERROR: --password and --totp required for login",
+            if not have_creds(args):
+                print("ERROR: --password and --totp (or save-creds) required for login",
                       file=sys.stderr)
                 sys.exit(1)
             do_login(ctx, args.solisid, args.password, args.totp)
@@ -1124,13 +1237,16 @@ def main():
 
         else:
             cached = load_token()
+            if (cached and cached.get("token") and token_expired(cached["token"])
+                    and args.cmd != "sync"):  # sync logs in by itself
+                sys.exit(EXPIRED_MSG)
             if cached and cached.get("token"):
                 print(f"[MAIN] Using cached token from {TOKEN_FILE}",
                       file=sys.stderr)
                 args.token = cached["token"]
             else:
-                if not args.password or not args.totp:
-                    print("ERROR: No cached token and no --password/--totp.",
+                if not have_creds(args):
+                    print("ERROR: No cached token and no --password/--totp or saved credentials.",
                           file=sys.stderr)
                     sys.exit(1)
                 print("[MAIN] No token — logging in...", file=sys.stderr)

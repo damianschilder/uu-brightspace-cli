@@ -9,6 +9,7 @@ venv/
 .env
 *.env
 token.json
+credentials.enc
 auth.json
 *.key
 *.pem

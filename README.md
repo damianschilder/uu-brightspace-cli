@@ -32,15 +32,36 @@ playwright install --with-deps chromium
 
 ## Configuration
 
+Store your credentials encrypted once:
+
+```sh
+python3 brightspace-cli.py save-creds
+```
+
+This prompts for your Solis-id, password, TOTP secret and a passphrase, and writes
+them to `credentials.enc` (scrypt + AES-256-GCM, mode `0600`). Whenever a login is
+needed, the CLI asks for the passphrase. To skip the prompt (cron, Docker), set
+`BRIGHTSPACE_PASSPHRASE`. Keep the passphrase out of files, or the encryption gains
+you nothing.
+
+Or pass the credentials as environment variables, which take precedence over the
+saved file:
+
 ```sh
 export BRIGHTSPACE_SOLISID=...
 export BRIGHTSPACE_PASSWORD=...
 export BRIGHTSPACE_TOTP_SECRET=...
 ```
 
+Your password and TOTP secret sit together in the same place, so anyone who gets
+both bypasses MFA. Avoid `--password`/`--totp` flags: they show up in `ps` and
+shell history.
+
 Optional: `BRIGHTSPACE_ORG_UNIT` (default course), `BRIGHTSPACE_BASE_URL`,
-`BRIGHTSPACE_SESSION_DIR` and `BRIGHTSPACE_TOKEN_FILE` (default `../brightspace/`
-next to the repo).
+`BRIGHTSPACE_SESSION_DIR`, `BRIGHTSPACE_TOKEN_FILE` and `BRIGHTSPACE_CREDS_FILE`
+(default `../brightspace/` next to the repo). The token and session are bearer
+secrets and are kept owner-only. To keep them off disk, point them at a tmpfs such
+as `$XDG_RUNTIME_DIR`.
 
 ### Getting your TOTP secret
 
@@ -65,6 +86,7 @@ accounts" QR holds an encoded `otpauth-migration://` URI that needs a decoder to
 ## Usage
 
 ```sh
+python3 brightspace-cli.py save-creds                     # Store credentials encrypted
 python3 brightspace-cli.py login                          # Authenticate and cache a token
 python3 brightspace-cli.py courses                        # List enrolled courses
 python3 brightspace-cli.py sync --org-unit <id> -o out    # Download one course
@@ -88,6 +110,10 @@ docker run --rm \
   -v brightspace-state:/data -v "$PWD/output:/output" \
   brightspace-cli sync-all -o /output
 ```
+
+To use saved credentials instead, run `save-creds` once with `-it` against the same
+volume. It writes `/data/credentials.enc`. From then on, pass `-e BRIGHTSPACE_PASSPHRASE`
+(or use `-it` and type it) instead of the three credential variables.
 
 ## Disclaimer
 
