@@ -7,6 +7,7 @@ import sys
 from argparse import Namespace
 
 import pytest
+from playwright.sync_api import BrowserContext
 
 from fake_uu import PROJECTS
 from uu_cli import auth, browser, login, paths
@@ -29,11 +30,11 @@ def window(request, fake_uu, monkeypatch):
     """
     by_hand = getattr(request, "param", True)
     opened = []
+    real_open_window = browser.open_window
 
     def open_window(ctx):
-        win = ctx.browser.browser_type.launch(headless=True).new_context()
+        win = real_open_window(ctx, headless=True)
         fake_uu.install(win, by_hand=by_hand)
-        win.add_cookies(ctx.cookies())
         opened.append(win)
         return win
 
@@ -68,6 +69,20 @@ def test_you_log_in_in_the_window_and_the_cli_takes_over(window, fake_uu, capsys
     assert fake_uu.logins == 1 and len(fake_uu.codes) == 1  # the code went in the window
     assert json.loads(paths.TOKEN_FILE.read_text())["token"] == fake_uu.token
     assert not window[0].browser.is_connected()  # closed once the CLI had the session
+
+
+@pytest.mark.browser
+def test_window_opens_where_playwright_gives_the_cli_no_browser(window, fake_uu, monkeypatch,
+                                                                 capsys):
+    # Older Playwright versions: the CLI's persistent context has no .browser.
+    real = BrowserContext.browser
+    monkeypatch.setattr(BrowserContext, "browser",
+                        property(lambda c: None if c in browser._launched_by else real.fget(c)))
+
+    code, _, err = run(brightspace, ["login", "--auth", "browser"], capsys)
+
+    assert code == 0, err
+    assert len(window) == 1 and fake_uu.logins == 1
 
 
 @pytest.mark.browser
