@@ -130,9 +130,9 @@ def do_login(ctx: BrowserContext, start_url: str, solisid: str, password: str,
 def browser_login(ctx: BrowserContext, start_url: str, name: str = "Brightspace") -> None:
     """Log in yourself in a visible browser window; ctx takes its session over afterwards.
 
-    Everything UU offers works there (a code from your app, a push notification, your password
-    manager), and the CLI never sees your password or code. The window only opens when UU's
-    session has run out.
+    It is UU's own login page in an ordinary browser, so whatever UU offers should work there
+    (tried with a code from an authenticator app, not yet with push), and the CLI never sees
+    your password or code. The window only opens when UU's session has run out.
     """
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
     target = urlparse(start_url).hostname

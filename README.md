@@ -12,7 +12,7 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
 flowchart LR
     secret["TOTP secret on this device<br/>--auth totp-secret"] --> cli
     prompt["Code from your authenticator app,<br/>typed in the terminal<br/>--auth prompt"] --> cli
-    window["You log in yourself in a browser window<br/>(authenticator code or push)<br/>--auth browser"] --> cli
+    window["You log in yourself in a browser window,<br/>with the code from your authenticator app<br/>--auth browser"] --> cli
     cli["uu-brightspace-cli<br/>one UU login, one shared session"] --> brightspace["Brightspace<br/>uu brightspace …"]
     cli --> konjoin["Konjoin<br/>uu konjoin …"]
 ```
@@ -30,9 +30,10 @@ flowchart LR
 
 ## Limitations
 
-- **Push only in a browser window.** Logging in headless needs an authenticator app
-  (TOTP) for the 6-digit codes. For UU's push-notification approval, log in yourself in a
-  browser window (`--auth browser`), which needs a screen.
+- **Codes, not push, in the terminal.** Logging in headless needs an authenticator app
+  (TOTP) for the 6-digit codes; UU's push-notification approval can't work there. A browser
+  window (`--auth browser`) shows UU's own login page, so push should work there, but it
+  hasn't been tried yet.
 - **UU only.** The login flow is written for UU's Solis-id login page.
 - **Can break** if UU, D2L, SURFconext or Konjoin change their pages.
 
@@ -59,7 +60,7 @@ with `--auth` (or `BRIGHTSPACE_AUTH`):
 |---|---|---|
 | `prompt` | you: the CLI asks for the code your app shows (Authy, Google Authenticator, …) | everyday use; the TOTP secret never leaves your phone |
 | `totp-secret` | the CLI, generated from your TOTP secret | unattended runs (cron, Docker); the secret lives on this machine |
-| `browser` | you, in a browser window the CLI opens: UU's own login page, push notifications included | a desktop; the CLI never sees your password or code |
+| `browser` | you, in a browser window the CLI opens on UU's own login page | a desktop; the CLI never sees your password or code |
 | `auto` (default) | the secret when one is set, otherwise you at the prompt | |
 
 With `browser`, the window only opens when UU's session has run out. Log in there as

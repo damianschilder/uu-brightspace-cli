@@ -8,7 +8,7 @@ registered in ROUTES:
 
 `--auth auto` (the default) uses the secret when one is set and asks you otherwise.
 `--auth browser` skips the form altogether: you log in yourself in a browser window
-(uu_cli.login.browser_login), with whatever UU offers, push notifications included.
+(uu_cli.login.browser_login), on UU's own login page.
 """
 
 from __future__ import annotations
