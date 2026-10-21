@@ -4,6 +4,8 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.pytest_cache/
+build/
 
 # Secrets & credentials
 .env
@@ -17,11 +19,12 @@ auth.json
 # Playwright/Brightspace session state
 session/
 *.session
-.brightspace/
-brightspace/
+# Anchored to the repo root: src/uu_cli/services/brightspace/ is source code.
+/.brightspace/
+/brightspace/
 
 # Local output / course downloads
-brightspace_sync/
+/brightspace_sync/
 *.brightspace_md/
 output/
 

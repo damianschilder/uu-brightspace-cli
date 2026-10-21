@@ -26,16 +26,19 @@ Python 3.10+ and Chromium.
 
 ```sh
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-playwright install --with-deps chromium
+pip install -e .
+python -m playwright install --with-deps chromium
 ```
+
+This installs the `uu` command. `python3 brightspace-cli.py <command>` keeps working and
+is the same as `uu brightspace <command>`.
 
 ## Configuration
 
 Store your credentials encrypted once:
 
 ```sh
-python3 brightspace-cli.py save-creds
+uu brightspace save-creds
 ```
 
 This prompts for your Solis-id, password, TOTP secret and a passphrase, and writes
@@ -86,14 +89,14 @@ accounts" QR holds an encoded `otpauth-migration://` URI that needs a decoder to
 ## Usage
 
 ```sh
-python3 brightspace-cli.py save-creds                     # Store credentials encrypted
-python3 brightspace-cli.py login                          # Authenticate and cache a token
-python3 brightspace-cli.py courses                        # List enrolled courses
-python3 brightspace-cli.py sync --org-unit <id> -o out    # Download one course
-python3 brightspace-cli.py sync-all -o out                # Download every course
-python3 brightspace-cli.py sync-all --dry-run             # Preview without downloading
-python3 brightspace-cli.py deadlines                      # Upcoming deadlines
-python3 brightspace-cli.py assignments | grades | news | toc | schedule
+uu brightspace save-creds                     # Store credentials encrypted
+uu brightspace login                          # Authenticate and cache a token
+uu brightspace courses                        # List enrolled courses
+uu brightspace sync --org-unit <id> -o out    # Download one course
+uu brightspace sync-all -o out                # Download every course
+uu brightspace sync-all --dry-run             # Preview without downloading
+uu brightspace deadlines                      # Upcoming deadlines
+uu brightspace assignments | grades | news | toc | schedule
 ```
 
 All commands except `login`, `courses` and `sync-all` need a course's org-unit id:
@@ -114,6 +117,32 @@ docker run --rm \
 To use saved credentials instead, run `save-creds` once with `-it` against the same
 volume. It writes `/data/credentials.enc`. From then on, pass `-e BRIGHTSPACE_PASSPHRASE`
 (or use `-it` and type it) instead of the three credential variables.
+
+## Development
+
+```
+src/uu_cli/
+  cli.py               the `uu` command: uu <service> <command>
+  browser.py           the headless Chromium every command runs in
+  login.py             UU's Solis-id page: Solis-id, password, one-time code
+  paths.py             where state and downloads live
+  auth/                the TOTP secret and the encrypted credentials file
+  services/
+    brightspace/       api.py (token, /d2l/api), commands.py, sync.py, sheets.py, cli.py
+brightspace-cli.py     the old entry point, kept for existing scripts and the Docker image
+tests/                 pytest suite; fake_uu.py is an offline stand-in for UU's login and Brightspace
+```
+
+A new platform is a package under `services/` with a `cli.py` exposing `main(argv, prog)`,
+registered in `SERVICES` in `cli.py`.
+
+```sh
+pip install -e '.[dev]'
+python -m pytest
+```
+
+The suite needs no account and no network. The browser tests drive the real CLI in
+Chromium against `tests/fake_uu.py` and are skipped when Chromium is not installed.
 
 ## Disclaimer
 

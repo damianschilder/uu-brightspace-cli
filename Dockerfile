@@ -8,11 +8,11 @@ FROM mcr.microsoft.com/playwright/python:v${PLAYWRIGHT_VERSION}-jammy
 WORKDIR /app
 ARG PLAYWRIGHT_VERSION
 
-# Python deps (pyotp/requests added; playwright pinned to the image's version).
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt "playwright==${PLAYWRIGHT_VERSION}"
-
-COPY brightspace-cli.py ./
+# The package (playwright pinned to the image's version). Editable, so state defaults
+# resolve relative to /app exactly as they did for the single-file script.
+COPY pyproject.toml README.md LICENSE brightspace-cli.py ./
+COPY src ./src
+RUN pip install --no-cache-dir -e . "playwright==${PLAYWRIGHT_VERSION}"
 
 # Runtime state lives outside the image so the session/token can be bind-mounted.
 ENV BRIGHTSPACE_SESSION_DIR=/data/session \

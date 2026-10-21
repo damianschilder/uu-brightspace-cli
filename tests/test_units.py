@@ -1,0 +1,98 @@
+"""Pieces that need no browser: tokens, saved credentials, schedules and filenames."""
+
+from __future__ import annotations
+
+import stat
+import time
+from argparse import Namespace
+
+import pytest
+
+from fake_uu import PASSWORD, SOLISID, TOTP_SECRET, make_jwt
+from uu_cli import paths
+from uu_cli.auth import credentials
+from uu_cli.services.brightspace import api
+from uu_cli.services.brightspace.sheets import extract_google_sheets_urls, parse_sheet_deadlines
+
+
+# ── tokens ────────────────────────────────────────────────────────────────────
+def test_token_expired_reads_jwt_exp():
+    assert not api.token_expired(make_jwt(time.time() + 3600))
+    assert api.token_expired(make_jwt(time.time() - 1))
+    assert api.token_expired(make_jwt(time.time() + 30))  # inside the 60 s margin
+
+
+def test_token_expired_leaves_unreadable_tokens_to_the_api():
+    assert not api.token_expired("not-a-jwt")
+
+
+def test_saved_token_is_owner_only():
+    api.save_token("abc")
+
+    assert api.load_token()["token"] == "abc"
+    assert stat.S_IMODE(paths.TOKEN_FILE.stat().st_mode) == 0o600
+
+
+# ── encrypted credentials ─────────────────────────────────────────────────────
+CREDS = {"solisid": SOLISID, "password": PASSWORD, "totp": TOTP_SECRET}
+
+
+def test_credentials_round_trip(monkeypatch):
+    monkeypatch.setenv("BRIGHTSPACE_PASSPHRASE", "long enough passphrase")
+    credentials.save_creds(CREDS, "long enough passphrase")
+
+    assert credentials.load_creds() == CREDS
+    assert stat.S_IMODE(paths.CREDS_FILE.stat().st_mode) == 0o600
+    assert PASSWORD not in paths.CREDS_FILE.read_text()
+
+
+def test_wrong_passphrase_exits(monkeypatch):
+    credentials.save_creds(CREDS, "long enough passphrase")
+    monkeypatch.setenv("BRIGHTSPACE_PASSPHRASE", "something else entirely")
+
+    with pytest.raises(SystemExit, match="wrong passphrase"):
+        credentials.load_creds()
+
+
+def test_have_creds_fills_only_missing_fields(monkeypatch):
+    monkeypatch.setenv("BRIGHTSPACE_PASSPHRASE", "long enough passphrase")
+    credentials.save_creds(CREDS, "long enough passphrase")
+    args = Namespace(solisid="7654321", password="", totp="")
+
+    assert credentials.have_creds(args)
+    assert (args.solisid, args.password, args.totp) == ("7654321", PASSWORD, TOTP_SECRET)
+
+
+def test_save_creds_rejects_a_secret_that_is_not_base32(monkeypatch, capsys):
+    args = Namespace(solisid=SOLISID, password=PASSWORD, totp="not base32!")
+
+    assert credentials.cmd_save_creds(args) == 1
+    assert "not valid base32" in capsys.readouterr().err
+    assert not paths.CREDS_FILE.exists()
+
+
+# ── schedules ─────────────────────────────────────────────────────────────────
+def test_extract_google_sheets_urls_gives_csv_export_links():
+    html = '<a href="https://docs.google.com/spreadsheets/d/AbC-123_x/edit#gid=0">Schedule</a>'
+
+    assert extract_google_sheets_urls(html) == [
+        "https://docs.google.com/spreadsheets/d/AbC-123_x/export?format=csv&gid=0"]
+
+
+def test_parse_sheet_deadlines(tmp_path):
+    sheet = tmp_path / "schedule.csv"
+    sheet.write_text(
+        "Date,Topic,Deadline\n"
+        "\"April 21, 2026Tue\",Intro,\n"
+        "\"May 5, 2026Tue\",Lab,Report 1\n"
+        "TBA,Later,\n")
+
+    assert [(d["date"], d["title"]) for d in parse_sheet_deadlines(sheet)] == [
+        ("2026-04-21", "Intro"), ("2026-05-05", "Report 1")]
+
+
+# ── filenames ─────────────────────────────────────────────────────────────────
+def test_safe_filename():
+    assert paths.safe_filename("a\\b\nc ") == "a_b c"
+    assert paths.safe_filename("") == "untitled"
+    assert len(paths.safe_filename("x" * 500)) == 180
