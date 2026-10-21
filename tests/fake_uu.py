@@ -144,16 +144,17 @@ class FakeUU:
         self.wayf_choices = 0       # times SURFconext's institution picker was answered
         self.elsewhere: list[str] = []  # requests for hosts this fake doesn't serve (aborted)
 
-    def install(self, ctx) -> None:
-        ctx.route("**/*", self._handle)
+    def install(self, ctx, by_hand: bool = False) -> None:
+        """Serve the fake to ctx. by_hand: someone at this browser fills in UU's forms (--auth browser)."""
+        ctx.route("**/*", lambda route: self._handle(route, by_hand))
 
     # ── dispatch ──────────────────────────────────────────────────────────────
-    def _handle(self, route) -> None:
+    def _handle(self, route, by_hand: bool = False) -> None:
         req = route.request
         url = urlparse(req.url)
         origin = f"{url.scheme}://{url.netloc}"
         handler = {
-            IDP: self._idp,
+            IDP: lambda *a: self._idp(*a, by_hand=by_hand),
             BRIGHTSPACE: self._brightspace,
             KONJOIN: self._konjoin,
             SURFCONEXT: self._surfconext,
@@ -165,7 +166,7 @@ class FakeUU:
             route.abort()
 
     # ── UU's login (the identity provider) ────────────────────────────────────
-    def _idp(self, route, req, url) -> None:
+    def _idp(self, route, req, url, by_hand: bool = False) -> None:
         if url.path != "/nidp/app/login":
             return route.fulfill(status=404, body="not found")
         query = parse_qs(url.query)
@@ -175,11 +176,13 @@ class FakeUU:
                 self.wayf_choices += 1
             if "IDP_SESSION=" in _cookies(req):  # single sign-on: still logged in at UU
                 return _redirect(route, ACS[sp])
-            return _html(route, LOGIN_FORM.format(sp=sp))
+            you = _by_hand({"Ecom_User_ID": SOLISID, "Ecom_Password": PASSWORD}) if by_hand else ""
+            return _html(route, LOGIN_FORM.format(sp=sp) + you)
         form = {k: v[0] for k, v in parse_qs(req.post_data or "").items()}
         if query.get("sid") == ["0"]:
             if form.get("Ecom_User_ID") == SOLISID and form.get("Ecom_Password") == PASSWORD:
-                return _html(route, OTP_FORM.format(sp=sp))
+                you = _by_hand({"nffc": pyotp.TOTP(TOTP_SECRET).now()}) if by_hand else ""
+                return _html(route, OTP_FORM.format(sp=sp) + you)
             return _html(route, "<p>Wrong Solis-id or password.</p>" + LOGIN_FORM.format(sp=sp))
         code = form.get("nffc", "")
         self.codes.append(code)
@@ -255,6 +258,13 @@ class FakeUU:
                 return _json(route, {"message": "Not found."}, status=404)
             return _json(route, project)
         route.fulfill(status=404, body="not found")
+
+
+def _by_hand(values: dict) -> str:
+    """You, at --auth browser's window: fill in the form on the page and send it."""
+    fill = "".join(f"document.getElementById({json.dumps(k)}).value = {json.dumps(v)};"
+                   for k, v in values.items())
+    return f"<script>setTimeout(() => {{ {fill} document.forms[0].submit(); }}, 300)</script>"
 
 
 def _cookies(req) -> str:

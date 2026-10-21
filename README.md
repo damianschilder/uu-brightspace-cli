@@ -8,6 +8,15 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
 - **[Konjoin](https://uu.konjoin.nl)** (`uu konjoin`): lists and searches research,
   thesis and internship projects, shows a project's details and exports them all to JSON.
 
+```mermaid
+flowchart LR
+    secret["TOTP secret on this device<br/>--auth totp-secret"] --> cli
+    prompt["Code from your authenticator app,<br/>typed in the terminal<br/>--auth prompt"] --> cli
+    window["You log in yourself in a browser window<br/>(authenticator code or push)<br/>--auth browser"] --> cli
+    cli["uu-brightspace-cli<br/>one UU login, one shared session"] --> brightspace["Brightspace<br/>uu brightspace …"]
+    cli --> konjoin["Konjoin<br/>uu konjoin …"]
+```
+
 ## Features
 
 - **Full course sync** of every module and topic, including files linked from inside pages.
@@ -21,8 +30,9 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
 
 ## Limitations
 
-- **Authenticator codes, not push.** You need an authenticator app (TOTP) for the
-  6-digit codes. The UU push-notification approval won't work.
+- **Push only in a browser window.** Logging in headless needs an authenticator app
+  (TOTP) for the 6-digit codes. For UU's push-notification approval, log in yourself in a
+  browser window (`--auth browser`), which needs a screen.
 - **UU only.** The login flow is written for UU's Solis-id login page.
 - **Can break** if UU, D2L, SURFconext or Konjoin change their pages.
 
@@ -42,14 +52,20 @@ is the same as `uu brightspace <command>`.
 ## Logging in
 
 UU asks for your Solis-id, your password and a 6-digit code from your authenticator
-app. The CLI can answer the code step in two ways, chosen with `--auth` (or
-`BRIGHTSPACE_AUTH`):
+app. The CLI can answer the code step in two ways, or let you log in yourself, chosen
+with `--auth` (or `BRIGHTSPACE_AUTH`):
 
 | `--auth` | The code comes from | Good for |
 |---|---|---|
 | `prompt` | you: the CLI asks for the code your app shows (Authy, Google Authenticator, …) | everyday use; the TOTP secret never leaves your phone |
 | `totp-secret` | the CLI, generated from your TOTP secret | unattended runs (cron, Docker); the secret lives on this machine |
-| `auto` (default) | the secret when one is set, otherwise you | |
+| `browser` | you, in a browser window the CLI opens: UU's own login page, push notifications included | a desktop; the CLI never sees your password or code |
+| `auto` (default) | the secret when one is set, otherwise you at the prompt | |
+
+With `browser`, the window only opens when UU's session has run out. Log in there as
+you would anywhere; once you're back on the platform, the CLI takes the session over and
+closes the window (it waits up to 5 minutes). It needs a screen: a desktop, or WSLg on
+Windows.
 
 With `prompt`, a login looks like this; the CLI also asks for your Solis-id and
 password when they aren't set:
@@ -177,8 +193,9 @@ volume. It writes `/data/credentials.enc`. From then on, pass `-e BRIGHTSPACE_PA
 ```
 src/uu_cli/
   cli.py               the `uu` command: uu <service> <command>
-  browser.py           the headless Chromium every command runs in
-  login.py             UU's Solis-id page: Solis-id, password, one-time code
+  browser.py           the headless Chromium every command runs in, and --auth browser's window
+  login.py             UU's Solis-id page: filled in here (do_login) or by you in a window
+                       (browser_login); log_in picks one from --auth
   paths.py             where state and downloads live
   auth/                login routes for the code step (totp_secret.py, prompt.py) and
                        the encrypted credentials file

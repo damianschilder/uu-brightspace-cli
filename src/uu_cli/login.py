@@ -3,6 +3,9 @@
 Services reach that page their own way: Brightspace redirects straight to it, Konjoin goes
 through SURFconext, which may first ask which institution to use. One UU login also covers
 the next service while UU's session lasts (single sign-on).
+
+The CLI fills the form itself (do_login), or, with --auth browser, opens a browser window
+where you log in yourself (browser_login).
 """
 
 from __future__ import annotations
@@ -14,11 +17,22 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import BrowserContext, Error as PlaywrightError, Page
 
-from uu_cli import paths
+from uu_cli import auth, browser, paths
 from uu_cli.auth import OtpRoute
 
 # How UU appears in SURFconext's institution picker (English or Dutch); not "UMC Utrecht".
 UU_IN_SURFCONEXT = re.compile(r"Utrecht University|Universiteit Utrecht")
+
+# How long the --auth browser window waits for you to finish logging in.
+WINDOW_TIMEOUT_S = 300
+
+
+def log_in(ctx: BrowserContext, start_url: str, args, name: str = "Brightspace") -> None:
+    """Log in the way args.auth says (after auth.ready_to_login): in a window, or here."""
+    if args.auth == "browser":
+        browser_login(ctx, start_url, name)
+    else:
+        do_login(ctx, start_url, args.solisid, args.password, auth.otp_route(args), name=name)
 
 
 def single_sign_on(ctx: BrowserContext, start_url: str) -> bool:
@@ -111,6 +125,62 @@ def do_login(ctx: BrowserContext, start_url: str, solisid: str, password: str,
 
     print(f"[AUTH] ✓ Logged in: {page.url}", file=sys.stderr)
     page.wait_for_timeout(2000)
+
+
+def browser_login(ctx: BrowserContext, start_url: str, name: str = "Brightspace") -> None:
+    """Log in yourself in a visible browser window; ctx takes its session over afterwards.
+
+    Everything UU offers works there (a code from your app, a push notification, your password
+    manager), and the CLI never sees your password or code. The window only opens when UU's
+    session has run out.
+    """
+    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+    target = urlparse(start_url).hostname
+
+    print(f"[AUTH] Navigating to {name}...", file=sys.stderr)
+    page.goto(start_url, wait_until="load", timeout=30_000)
+    if not _reach_login_form(page, target):
+        print(f"[AUTH] ✓ Already logged in at UU: {page.url}", file=sys.stderr)
+        return
+
+    print(f"[AUTH] Log in to UU in the browser window that opens; waiting up to "
+          f"{WINDOW_TIMEOUT_S // 60} minutes...", file=sys.stderr)
+    window = browser.open_window(ctx)
+    try:
+        win_page = window.new_page()
+        win_page.goto(start_url, wait_until="load", timeout=30_000)
+        try:
+            _reach_login_form(win_page, target)  # answer SURFconext's picker for you
+        except RuntimeError:
+            pass  # no form we know; you can still log in by hand
+        landed = _wait_until_back(win_page, target, WINDOW_TIMEOUT_S)
+        ctx.add_cookies(window.cookies())
+    finally:
+        window.browser.close()
+
+    page.goto(landed, wait_until="load", timeout=30_000)
+    print(f"[AUTH] ✓ Logged in: {page.url}", file=sys.stderr)
+
+
+def _wait_until_back(page: Page, target_host: str | None, timeout_s: float) -> str:
+    """Wait until a login in the window ends back on target_host (for 2 s); returns that URL."""
+    deadline = time.monotonic() + timeout_s
+    on_target_since = None
+    while time.monotonic() < deadline:
+        if page.is_closed():
+            raise RuntimeError("The browser window was closed before the login finished.")
+        if urlparse(page.url).hostname == target_host:
+            on_target_since = on_target_since or time.monotonic()
+            if time.monotonic() - on_target_since > 2:
+                return page.url
+        else:
+            on_target_since = None
+        try:
+            page.wait_for_timeout(250)
+        except PlaywrightError:
+            pass  # closed meanwhile; the next round says so
+    raise RuntimeError(f"No login in the browser window within {timeout_s / 60:g} minutes; "
+                       f"it was at {page.url}")
 
 
 def _reach_login_form(page: Page, target_host: str | None, timeout_s: float = 30) -> bool:

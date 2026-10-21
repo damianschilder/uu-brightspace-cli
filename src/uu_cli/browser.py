@@ -31,6 +31,9 @@ CHROMIUM_ARGS = [
     "--no-first-run",
 ]
 
+# The visible window of --auth browser: an ordinary Chromium, so UU's pages behave as they do for you.
+WINDOW_ARGS = ["--no-first-run", "--disable-sync", "--disable-default-apps", "--disable-extensions"]
+
 
 def launch(pw: Playwright, session_dir: str | Path) -> BrowserContext:
     """Open the persistent browser profile in session_dir, with the last run's session restored."""
@@ -42,6 +45,17 @@ def launch(pw: Playwright, session_dir: str | Path) -> BrowserContext:
     )
     restore_session(ctx, session_dir)
     return ctx
+
+
+def open_window(ctx: BrowserContext) -> BrowserContext:
+    """A visible browser window that starts with ctx's cookies, to log in by hand.
+
+    Close it with `.browser.close()`; ctx.add_cookies(window.cookies()) takes its session over.
+    """
+    window = ctx.browser.browser_type.launch(headless=False, args=WINDOW_ARGS)
+    win = window.new_context(no_viewport=True)
+    win.add_cookies(ctx.cookies())
+    return win
 
 
 def own_files_only(ctx: BrowserContext, host: str) -> None:
