@@ -56,6 +56,14 @@ def test_projects_need_no_login(fake_uu, at_terminal, capsys):
 
 
 @pytest.mark.browser
+def test_konjoin_pages_load_only_konjoins_own_files(fake_uu, capsys):
+    code, _, err = run(konjoin, ["projects"], capsys)
+
+    assert code == 0, err
+    assert fake_uu.elsewhere == []  # the polyfill script and the font never left the browser
+
+
+@pytest.mark.browser
 def test_projects_search_all_pages_as_json(fake_uu, capsys):
     code, out, _ = run(konjoin, ["projects", "--search", "still", "--all", "--json"], capsys)
 

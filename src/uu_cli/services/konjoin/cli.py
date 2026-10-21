@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
 
 from uu_cli import auth, browser, paths
+from uu_cli.services.konjoin.api import BASE_URL
 from uu_cli.services.konjoin.commands import cmd_export, cmd_login, cmd_project, cmd_projects
 
 COMMANDS = {
@@ -55,6 +57,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
 
     with sync_playwright() as pw:
         ctx = browser.launch(pw, args.session_dir)
+        browser.own_files_only(ctx, urlparse(BASE_URL).hostname)
         try:
             sys.exit(COMMANDS[args.cmd](ctx, args))
         finally:

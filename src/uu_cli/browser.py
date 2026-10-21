@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
-from playwright.sync_api import BrowserContext, Playwright
+from playwright.sync_api import BrowserContext, Error as PlaywrightError, Playwright, Route
 
 from uu_cli import paths
 
@@ -41,6 +42,28 @@ def launch(pw: Playwright, session_dir: str | Path) -> BrowserContext:
     )
     restore_session(ctx, session_dir)
     return ctx
+
+
+def own_files_only(ctx: BrowserContext, host: str) -> None:
+    """On host's pages, load only host's own files; leaving for another site (a login) still works.
+
+    Konjoin's pages wait for third-party scripts and fonts (cdn.polyfill.io, cdnjs, Google
+    Fonts) before they count as loaded. The CLI needs none of them, and when one hangs, the page
+    hangs past every timeout. cdn.polyfill.io is also the domain that served malware in 2024; it
+    has no business running next to a login session.
+    """
+    def route(r: Route) -> None:
+        req = r.request
+        try:
+            on_host = urlparse(req.frame.url).hostname == host
+        except PlaywrightError:
+            on_host = False  # not from a page (a service worker): leave it alone
+        if on_host and not req.is_navigation_request() and urlparse(req.url).hostname != host:
+            r.abort()
+        else:
+            r.fallback()
+
+    ctx.route("**/*", route)
 
 
 def restore_session(ctx: BrowserContext, session_dir: str | Path) -> None:

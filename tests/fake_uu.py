@@ -121,6 +121,9 @@ PROJECTS = [
      "created_at": "2026-05-01T10:00:00.000000Z", "close_at": None},
 ]
 PER_PAGE = 2
+# What Konjoin's real pages wait for before they count as loaded (seen 22-10-2026).
+THIRD_PARTY = """<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato">
+<script src="https://cdn.polyfill.io/v2/polyfill.min.js"></script>"""
 
 
 def make_jwt(exp: float) -> str:
@@ -137,6 +140,7 @@ class FakeUU:
         self.logins = 0             # completed logins at Brightspace
         self.konjoin_logins = 0     # completed logins at Konjoin
         self.wayf_choices = 0       # times SURFconext's institution picker was answered
+        self.elsewhere: list[str] = []  # requests for hosts this fake doesn't serve (aborted)
 
     def install(self, ctx) -> None:
         ctx.route("**/*", self._handle)
@@ -155,6 +159,7 @@ class FakeUU:
         if handler:
             handler(route, req, url)
         else:
+            self.elsewhere.append(req.url)
             route.abort()
 
     # ── UU's login (the identity provider) ────────────────────────────────────
@@ -229,7 +234,7 @@ class FakeUU:
         if path == "/":
             user = ('<meta name="user-id" content="42"><meta name="user-name" content="Test Student">'
                     if logged_in else "")
-            return _html(route, f"<head>{user}</head><h1>KonJoin</h1>")
+            return _html(route, f"<head>{user}{THIRD_PARTY}</head><h1>KonJoin</h1>")
         if path == "/api/project":
             term = query.get("query", [""])[0].lower()
             found = [p for p in PROJECTS if term in p["label"].lower()]
