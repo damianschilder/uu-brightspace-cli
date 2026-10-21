@@ -104,7 +104,9 @@ PROJECTS = [
      "institute": {"label": "Department of Medicine"},
      "description": "<p>Why does one person develop a neurological disorder &amp; another not?</p>"
                     "<ul><li>Clinical genetics</li><li>Eight weeks</li></ul>",
-     "leader": {"full_name": "Anoniem"}, "collaborators": [{"full_name": "Dr. A. Example"}],
+     "leader": {"full_name": "Anoniem", "email": "leader@example.org", "organization_uid": "1000001"},
+     "collaborators": [{"full_name": "Dr. A. Example", "email": "a.example@example.org",
+                        "organization_uid": "1000002"}],
      "studies": [{"label": "Medicine"}], "types": [{"label": "Internship"}],
      "created_at": "2026-10-20T08:06:03.000000Z", "close_at": None},
     {"id": 3100, "slug": "3100-trade-routes-in-still-lifes", "label": "Trade routes in Dutch still lifes",

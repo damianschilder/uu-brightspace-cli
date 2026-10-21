@@ -153,6 +153,10 @@ Solis-id page as usual. The login options and variables (`--auth`, `save-creds`,
 If SURFconext asks for your consent to share your details with Konjoin, log in once
 in a normal browser to give it. Optional: `KONJOIN_BASE_URL`.
 
+Konjoin shows every logged-in user each person's email address and organisation id.
+JSON output (`--json`, `export`) leaves both out, so an export isn't a list of everyone's
+contact details; add `--keep-contact-details` if you need them.
+
 ## Docker
 
 ```sh

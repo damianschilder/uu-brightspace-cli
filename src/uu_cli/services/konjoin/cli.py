@@ -52,6 +52,10 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
     exp = cmd("export", help="Save every project to a JSON file")
     exp.add_argument("-o", "--output", required=True, help="JSON file to write")
     exp.add_argument("-s", "--search", help="Only projects matching this search term")
+    for sp in (prj, one, exp):
+        sp.add_argument("--keep-contact-details", action="store_true",
+                        help="Keep people's email addresses and organisation ids in JSON output "
+                             "(left out by default)")
 
     args = p.parse_args(argv)
 

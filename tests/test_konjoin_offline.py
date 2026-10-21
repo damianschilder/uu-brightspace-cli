@@ -83,6 +83,36 @@ def test_export_writes_every_page(fake_uu, state, capsys):
 
 
 @pytest.mark.browser
+def test_export_leaves_out_emails_and_organisation_ids(fake_uu, state, capsys):
+    target = state / "projects.json"
+
+    code, out, _ = run(konjoin, ["export", "-o", str(target)], capsys)
+
+    assert code == 0
+    saved = target.read_text()
+    assert "email" not in saved and "organization_uid" not in saved and "1000001" not in saved
+    assert json.loads(saved)[0]["leader"] == {"full_name": "Anoniem"}
+    assert "without emails and organisation ids" in out
+
+
+@pytest.mark.browser
+def test_keep_contact_details_keeps_them(fake_uu, state, capsys):
+    target = state / "projects.json"
+
+    run(konjoin, ["export", "-o", str(target), "--keep-contact-details"], capsys)
+
+    assert json.loads(target.read_text())[0]["leader"]["email"] == "leader@example.org"
+
+
+@pytest.mark.browser
+def test_project_json_leaves_out_contact_details(fake_uu, at_terminal, capsys):
+    code, out, err = run(konjoin, ["project", SLUG, "--json"], capsys)
+
+    assert code == 0, err
+    assert json.loads(out)["collaborators"] == [{"full_name": "Dr. A. Example"}]
+
+
+@pytest.mark.browser
 def test_project_details_log_in_through_surfconext(fake_uu, at_terminal, capsys):
     code, out, err = run(konjoin, ["project", SLUG], capsys)
 

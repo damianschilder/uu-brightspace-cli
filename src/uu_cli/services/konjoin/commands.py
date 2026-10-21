@@ -16,6 +16,24 @@ from uu_cli.services.konjoin.api import (
     BASE_URL, LOGIN_URL, NotLoggedIn, current_user, get_json, project_pages,
 )
 
+# Konjoin shows every logged-in user these for every person (project leaders' emails even to
+# guests). A project overview doesn't need them, and a file with everyone's email address and
+# organisation id is a list of personal data, so JSON output leaves them out unless asked.
+CONTACT_FIELDS = ("email", "organization_uid")
+
+
+def without_contact_details(data):
+    """data with every CONTACT_FIELDS key removed, at any depth."""
+    if isinstance(data, dict):
+        return {k: without_contact_details(v) for k, v in data.items() if k not in CONTACT_FIELDS}
+    if isinstance(data, list):
+        return [without_contact_details(v) for v in data]
+    return data
+
+
+def _for_output(data, args):
+    return data if getattr(args, "keep_contact_details", False) else without_contact_details(data)
+
 
 def ensure_login(ctx: BrowserContext, args) -> bool:
     """Log in to Konjoin unless already in; an existing UU session needs no code."""
@@ -45,7 +63,7 @@ def cmd_projects(ctx: BrowserContext, args) -> int:
     for last in project_pages(ctx, args.search, args.page, args.all):
         projects += last.get("data", [])
     if args.json:
-        print(json.dumps(projects, indent=2, ensure_ascii=False))
+        print(json.dumps(_for_output(projects, args), indent=2, ensure_ascii=False))
         return 0
     if not projects:
         print("No projects found.")
@@ -70,7 +88,7 @@ def cmd_project(ctx: BrowserContext, args) -> int:
             return 1
         project = get_json(ctx, f"/api/project/{args.slug}")
     if args.json:
-        print(json.dumps(project, indent=2, ensure_ascii=False))
+        print(json.dumps(_for_output(project, args), indent=2, ensure_ascii=False))
         return 0
     print(project.get("label", args.slug))
     print(f"{BASE_URL}/project/{project.get('slug', args.slug)}\n")
@@ -101,8 +119,9 @@ def cmd_export(ctx: BrowserContext, args) -> int:
         print(f"  page {page.get('current_page')} of {page.get('last_page')}", file=sys.stderr)
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(projects, indent=2, ensure_ascii=False))
-    print(f"{len(projects)} projects → {out}")
+    out.write_text(json.dumps(_for_output(projects, args), indent=2, ensure_ascii=False))
+    kept = "" if args.keep_contact_details else " (without emails and organisation ids)"
+    print(f"{len(projects)} projects → {out}{kept}")
     return 0
 
 
