@@ -27,7 +27,15 @@ def test_uu_lists_services(state):
     result = cli("-m", "uu_cli", "--help", state=state)
 
     assert result.returncode == 0
-    assert "brightspace" in result.stdout
+    assert "brightspace" in result.stdout and "konjoin" in result.stdout
+
+
+def test_konjoin_help_lists_every_command(state):
+    result = cli("-m", "uu_cli", "konjoin", "--help", state=state)
+
+    assert result.returncode == 0
+    for command in ["login", "projects", "project", "export"]:
+        assert command in result.stdout
 
 
 @pytest.mark.parametrize("entry", [["-m", "uu_cli", "brightspace"], ["brightspace-cli.py"]])

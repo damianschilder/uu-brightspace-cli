@@ -1,9 +1,12 @@
-# Brightspace CLI
+# UU CLI
 
-Headless CLI for [Utrecht University's Brightspace](https://uu.brightspace.com). Logs in
-with your Solis-id + TOTP and mirrors your courses to a local folder: slides, PDFs,
-assignment instructions, linked files and schedules. It can also list courses,
-assignments, deadlines, grades and announcements.
+Headless CLI for Utrecht University platforms, logged in with your Solis-id:
+
+- **[Brightspace](https://uu.brightspace.com)** (`uu brightspace`): mirrors your courses to
+  a local folder (slides, PDFs, assignment instructions, linked files and schedules) and
+  lists courses, assignments, deadlines, grades and announcements.
+- **[Konjoin](https://uu.konjoin.nl)** (`uu konjoin`): lists and searches research,
+  thesis and internship projects, shows a project's details and exports them all to JSON.
 
 ## Features
 
@@ -13,13 +16,15 @@ assignments, deadlines, grades and announcements.
 - **Incremental**: files already on disk are skipped.
 - **Headless login** with cached session and token: type one code from your
   authenticator app, or let the CLI generate codes from your TOTP secret.
+- **One login for every platform** while UU's session lasts: after a Brightspace login,
+  Konjoin logs in without asking for another code.
 
 ## Limitations
 
 - **Authenticator codes, not push.** You need an authenticator app (TOTP) for the
   6-digit codes. The UU push-notification approval won't work.
 - **UU only.** The login flow is written for UU's Solis-id login page.
-- **Can break** if UU or D2L change their pages.
+- **Can break** if UU, D2L, SURFconext or Konjoin change their pages.
 
 ## Install
 
@@ -131,6 +136,23 @@ All commands except `login`, `courses` and `sync-all` need a course's org-unit i
 pass `--org-unit <id>` (find ids with `courses`) or set `BRIGHTSPACE_ORG_UNIT`.
 Output goes to `<out>/<org-unit>/`. Run with `--help` for all options.
 
+### Konjoin
+
+```sh
+uu konjoin projects                           # First page of projects (no login needed)
+uu konjoin projects --search neuro --all      # Every project matching "neuro"
+uu konjoin project 3208-some-project-title    # One project's details (logs in if needed)
+uu konjoin export -o projects.json            # Every project, all pages, as JSON
+uu konjoin login                              # Log in ahead of time
+```
+
+Public projects are listed without a login; project details need one. Konjoin logs
+in through SURFconext, which the CLI answers with "Utrecht University", then UU's
+Solis-id page as usual. The login options and variables (`--auth`, `save-creds`,
+`BRIGHTSPACE_SOLISID`, …) are shared with Brightspace, as is the browser session.
+If SURFconext asks for your consent to share your details with Konjoin, log in once
+in a normal browser to give it. Optional: `KONJOIN_BASE_URL`.
+
 ## Docker
 
 ```sh
@@ -158,8 +180,10 @@ src/uu_cli/
                        the encrypted credentials file
   services/
     brightspace/       api.py (token, /d2l/api), commands.py, sync.py, sheets.py, cli.py
+    konjoin/           api.py (/api/project), commands.py, cli.py
 brightspace-cli.py     the old entry point, kept for existing scripts and the Docker image
-tests/                 pytest suite; fake_uu.py is an offline stand-in for UU's login and Brightspace
+tests/                 pytest suite; fake_uu.py is an offline stand-in for UU's login,
+                       SURFconext, Brightspace and Konjoin
 ```
 
 A new platform is a package under `services/` with a `cli.py` exposing `main(argv, prog)`,
@@ -177,7 +201,8 @@ Chromium against `tests/fake_uu.py` and are skipped when Chromium is not install
 
 ## Disclaimer
 
-Unofficial tool, not affiliated with or endorsed by Utrecht University or D2L.
+Unofficial tool, not affiliated with or endorsed by Utrecht University, D2L, SURF or
+Konjoin.
 Provided as is, without warranty. Use at your own risk.
 
 You are responsible for using it in line with your institution's regulations,
