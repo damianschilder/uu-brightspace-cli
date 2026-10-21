@@ -8,6 +8,7 @@ import os
 import sys
 import time
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from playwright.sync_api import BrowserContext
 
@@ -78,6 +79,23 @@ def _extract_token(ctx: BrowserContext) -> str | None:
         except Exception:
             pass
     return None
+
+
+def refresh_token(ctx: BrowserContext) -> str | None:
+    """Get a fresh token from a still-valid browser session (restored cookies), without a login."""
+    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+    try:
+        page.goto(f"{BASE_URL}/d2l/home", wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(2000)
+    except Exception:
+        return None
+    if urlparse(page.url).hostname != urlparse(BASE_URL).hostname:
+        return None
+    token = extract_token(ctx)
+    if token:
+        save_token(token)
+        print("[MAIN] Token refreshed from the saved session.", file=sys.stderr)
+    return token
 
 
 def api_fetch(ctx: BrowserContext, url: str, token: str,

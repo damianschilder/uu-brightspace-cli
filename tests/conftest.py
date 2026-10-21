@@ -7,19 +7,20 @@ from pathlib import Path
 import pytest
 
 from fake_uu import FakeUU
-from uu_cli import paths
+from uu_cli import auth, paths
 
 LOGIN_ENV = [
     "BRIGHTSPACE_SOLISID", "BRIGHTSPACE_PASSWORD", "BRIGHTSPACE_TOTP_SECRET",
-    "BRIGHTSPACE_PASSPHRASE", "BRIGHTSPACE_ORG_UNIT",
+    "BRIGHTSPACE_PASSPHRASE", "BRIGHTSPACE_ORG_UNIT", "BRIGHTSPACE_AUTH",
 ]
 
 
 @pytest.fixture(autouse=True)
 def state(tmp_path, monkeypatch) -> Path:
-    """Keep every state file in tmp_path and clear login variables from the environment."""
+    """Keep every state file in tmp_path, clear login variables, and act as an unattended run."""
     for var in LOGIN_ENV:
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(auth, "interactive", lambda: False)
     monkeypatch.setattr(paths, "SESSION_DIR", tmp_path / "session")
     monkeypatch.setattr(paths, "TOKEN_FILE", tmp_path / "token.json")
     monkeypatch.setattr(paths, "CREDS_FILE", tmp_path / "credentials.enc")

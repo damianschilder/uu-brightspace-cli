@@ -8,12 +8,15 @@ from urllib.parse import urlparse
 from playwright.sync_api import BrowserContext
 
 from uu_cli import paths
-from uu_cli.auth.totp_secret import totp
+from uu_cli.auth import OtpRoute
 
 
 def do_login(ctx: BrowserContext, start_url: str, solisid: str, password: str,
-             totp_secret: str, name: str = "Brightspace") -> None:
-    """Open start_url, which redirects to the Solis-id form, and log in until back on its host."""
+             otp: OtpRoute, name: str = "Brightspace") -> None:
+    """Open start_url, which redirects to the Solis-id form, and log in until back on its host.
+
+    The one-time code comes from otp (see uu_cli.auth), asked for once the code form is up.
+    """
     if not solisid:
         print("ERROR: --solisid or BRIGHTSPACE_SOLISID required for login",
               file=sys.stderr)
@@ -60,7 +63,7 @@ def do_login(ctx: BrowserContext, start_url: str, solisid: str, password: str,
 
     print(f"[AUTH] OTP field found: {otp_sel}", file=sys.stderr)
 
-    code = totp(totp_secret)
+    code = otp.code()
     page.fill(otp_sel, code)
 
     button_selectors = ["#loginButton2", "button[type='submit']",

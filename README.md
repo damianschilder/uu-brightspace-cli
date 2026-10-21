@@ -11,12 +11,13 @@ assignments, deadlines, grades and announcements.
 - **All courses at once** with `sync-all` (skips group/team sections).
 - **Deadlines** from Brightspace dropboxes merged with linked Google Sheets schedules.
 - **Incremental**: files already on disk are skipped.
-- **Headless login** with cached session and token.
+- **Headless login** with cached session and token: type one code from your
+  authenticator app, or let the CLI generate codes from your TOTP secret.
 
 ## Limitations
 
-- **TOTP only.** You need MFA codes from an authenticator app you set up yourself.
-  The UU push-notification approval won't work.
+- **Authenticator codes, not push.** You need an authenticator app (TOTP) for the
+  6-digit codes. The UU push-notification approval won't work.
 - **UU only.** The login flow is written for UU's Solis-id login page.
 - **Can break** if UU or D2L change their pages.
 
@@ -33,6 +34,32 @@ python -m playwright install --with-deps chromium
 This installs the `uu` command. `python3 brightspace-cli.py <command>` keeps working and
 is the same as `uu brightspace <command>`.
 
+## Logging in
+
+UU asks for your Solis-id, your password and a 6-digit code from your authenticator
+app. The CLI can answer the code step in two ways, chosen with `--auth` (or
+`BRIGHTSPACE_AUTH`):
+
+| `--auth` | The code comes from | Good for |
+|---|---|---|
+| `prompt` | you: the CLI asks for the code your app shows (Authy, Google Authenticator, …) | everyday use; the TOTP secret never leaves your phone |
+| `totp-secret` | the CLI, generated from your TOTP secret | unattended runs (cron, Docker); the secret lives on this machine |
+| `auto` (default) | the secret when one is set, otherwise you | |
+
+With `prompt`, a login looks like this; the CLI also asks for your Solis-id and
+password when they aren't set:
+
+```sh
+uu brightspace login
+# Code from your authenticator app: 123456
+```
+
+After a login the CLI keeps the session cookies in the session directory
+(`cookies.json`, owner-only), so later commands, including `sync`, reuse the login
+until UU or Brightspace ends the session. Only then does it ask for a code again.
+Those cookies work like a login for as long as the session lasts; delete the file to
+log out.
+
 ## Configuration
 
 Store your credentials encrypted once:
@@ -42,7 +69,8 @@ uu brightspace save-creds
 ```
 
 This prompts for your Solis-id, password, TOTP secret and a passphrase, and writes
-them to `credentials.enc` (scrypt + AES-256-GCM, mode `0600`). Whenever a login is
+them to `credentials.enc` (scrypt + AES-256-GCM, mode `0600`). Leave the TOTP secret
+empty to keep typing codes from your app (`--auth prompt`). Whenever a login is
 needed, the CLI asks for the passphrase. To skip the prompt (cron, Docker), set
 `BRIGHTSPACE_PASSPHRASE`. Keep the passphrase out of files, or the encryption gains
 you nothing.
@@ -68,8 +96,8 @@ as `$XDG_RUNTIME_DIR`.
 
 ### Getting your TOTP secret
 
-The CLI generates MFA codes itself, so it needs the secret key behind your
-authenticator entry (e.g. `JBSWY3DPEHPK3PXP`).
+Only needed for `--auth totp-secret`. The CLI then generates MFA codes itself, so it
+needs the secret key behind your authenticator entry (e.g. `JBSWY3DPEHPK3PXP`).
 
 [MySolisID](https://mysolisid.uu.nl) allows only one authenticator, so you either
 export the secret from your current app or set the authenticator up again.
@@ -126,7 +154,8 @@ src/uu_cli/
   browser.py           the headless Chromium every command runs in
   login.py             UU's Solis-id page: Solis-id, password, one-time code
   paths.py             where state and downloads live
-  auth/                the TOTP secret and the encrypted credentials file
+  auth/                login routes for the code step (totp_secret.py, prompt.py) and
+                       the encrypted credentials file
   services/
     brightspace/       api.py (token, /d2l/api), commands.py, sync.py, sheets.py, cli.py
 brightspace-cli.py     the old entry point, kept for existing scripts and the Docker image
@@ -134,7 +163,9 @@ tests/                 pytest suite; fake_uu.py is an offline stand-in for UU's 
 ```
 
 A new platform is a package under `services/` with a `cli.py` exposing `main(argv, prog)`,
-registered in `SERVICES` in `cli.py`.
+registered in `SERVICES` in `cli.py`. A new login route is a module in `auth/` with a
+class that has a `name` and a `code()` method, registered in `ROUTES` in
+`auth/__init__.py`.
 
 ```sh
 pip install -e '.[dev]'

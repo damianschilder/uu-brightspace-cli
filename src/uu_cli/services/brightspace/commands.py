@@ -9,7 +9,7 @@ from pathlib import Path
 
 from playwright.sync_api import BrowserContext
 
-from uu_cli import paths
+from uu_cli import auth, paths
 from uu_cli.login import do_login
 from uu_cli.paths import safe_filename
 from uu_cli.services.brightspace.api import (
@@ -23,7 +23,7 @@ from uu_cli.services.brightspace.sheets import (
 def cmd_login(ctx: BrowserContext, args) -> int:
     token = extract_token(ctx)
     if not token:
-        do_login(ctx, BASE_URL, args.solisid, args.password, args.totp)
+        do_login(ctx, BASE_URL, args.solisid, args.password, auth.otp_route(args))
         page = ctx.pages[0]
         page.goto(f"{BASE_URL}/d2l/home", wait_until="load", timeout=15000)
         page.wait_for_timeout(2000)
