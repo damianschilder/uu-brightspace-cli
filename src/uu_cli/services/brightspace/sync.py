@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlparse
 from playwright.sync_api import BrowserContext, Page
 
 from uu_cli import auth, paths
-from uu_cli.login import do_login
+from uu_cli.login import log_in
 from uu_cli.paths import safe_filename
 from uu_cli.services.brightspace.api import (
     BASE_URL, api_fetch, extract_token, get_token, load_token, save_token, token_expired,
@@ -130,8 +130,8 @@ def _sync_course(ctx: BrowserContext, args, ou: str, output: Optional[str]) -> t
             print(f"ERROR: No authenticated session; {auth.CANNOT_LOGIN}.", file=sys.stderr)
             return 1, 0, 0
         print("[SYNC] Session expired — fresh login...", file=sys.stderr)
-        do_login(ctx, BASE_URL, args.solisid, args.password, auth.otp_route(args))
-        # Do not re-navigate — do_login already lands on /d2l/home
+        log_in(ctx, BASE_URL, args)
+        # Do not re-navigate — log_in already lands on /d2l/home
         page.wait_for_timeout(2000)
 
         fresh_token = extract_token(ctx)

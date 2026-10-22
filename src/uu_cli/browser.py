@@ -7,7 +7,9 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from playwright.sync_api import BrowserContext, Error as PlaywrightError, Playwright, Route
+from playwright.sync_api import (
+    BrowserContext, BrowserType, Error as PlaywrightError, Playwright, Route,
+)
 
 from uu_cli import paths
 
@@ -31,6 +33,13 @@ CHROMIUM_ARGS = [
     "--no-first-run",
 ]
 
+# The visible window of --auth browser: an ordinary Chromium, so UU's pages behave as they do for you.
+WINDOW_ARGS = ["--no-first-run", "--disable-sync", "--disable-default-apps", "--disable-extensions"]
+
+# The browser type behind each context launch() opened. Older Playwright versions (the package
+# allows 1.40 and up) give a persistent context no .browser, so open_window can't count on it.
+_launched_by: dict[BrowserContext, BrowserType] = {}
+
 
 def launch(pw: Playwright, session_dir: str | Path) -> BrowserContext:
     """Open the persistent browser profile in session_dir, with the last run's session restored."""
@@ -40,8 +49,22 @@ def launch(pw: Playwright, session_dir: str | Path) -> BrowserContext:
         no_viewport=True,
         args=CHROMIUM_ARGS,
     )
+    _launched_by[ctx] = pw.chromium
     restore_session(ctx, session_dir)
     return ctx
+
+
+def open_window(ctx: BrowserContext, headless: bool = False) -> BrowserContext:
+    """A visible browser window that starts with ctx's cookies, to log in by hand.
+
+    Close it with `.browser.close()`; ctx.add_cookies(window.cookies()) takes its session over.
+    headless is for the tests.
+    """
+    browser_type = ctx.browser.browser_type if ctx.browser else _launched_by[ctx]
+    window = browser_type.launch(headless=headless, args=WINDOW_ARGS)
+    win = window.new_context(no_viewport=True)
+    win.add_cookies(ctx.cookies())
+    return win
 
 
 def own_files_only(ctx: BrowserContext, host: str) -> None:

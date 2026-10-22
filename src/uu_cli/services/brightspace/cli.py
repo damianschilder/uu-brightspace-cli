@@ -10,7 +10,7 @@ from playwright.sync_api import sync_playwright
 
 from uu_cli import auth, browser, paths
 from uu_cli.auth.credentials import cmd_save_creds
-from uu_cli.login import do_login
+from uu_cli.login import log_in
 from uu_cli.services.brightspace.api import (
     BASE_URL, EXPIRED_MSG, extract_token, load_token, refresh_token, save_token, token_expired,
 )
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
     if args.cmd not in ("login", "courses", "sync-all") and not args.org_unit:
         p.error("--org-unit or BRIGHTSPACE_ORG_UNIT required for content commands")
     if (args.cmd == "login" and not args.token and not args.solisid
-            and not paths.CREDS_FILE.exists()
+            and args.auth != "browser" and not paths.CREDS_FILE.exists()
             and not (args.auth != "totp-secret" and auth.interactive())):
         p.error("--solisid or BRIGHTSPACE_SOLISID (or save-creds) required for login")
 
@@ -96,7 +96,7 @@ def _run(ctx, args) -> None:
         if not auth.ready_to_login(args):
             print(f"ERROR: Cannot log in: {auth.CANNOT_LOGIN}.", file=sys.stderr)
             sys.exit(1)
-        do_login(ctx, BASE_URL, args.solisid, args.password, auth.otp_route(args))
+        log_in(ctx, BASE_URL, args)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(f"{BASE_URL}/d2l/home", wait_until="load", timeout=15000)
         page.wait_for_timeout(2000)
@@ -123,9 +123,9 @@ def _run(ctx, args) -> None:
                 print(f"ERROR: No cached token, and {auth.CANNOT_LOGIN}.", file=sys.stderr)
                 sys.exit(1)
             print("[MAIN] No token — logging in...", file=sys.stderr)
-            do_login(ctx, BASE_URL, args.solisid, args.password, auth.otp_route(args))
+            log_in(ctx, BASE_URL, args)
             page = ctx.pages[0]
-            # Do not re-navigate — do_login already lands on /d2l/home
+            # Do not re-navigate — log_in already lands on /d2l/home
             page.wait_for_timeout(2000)
             token = extract_token(ctx)
             if token:

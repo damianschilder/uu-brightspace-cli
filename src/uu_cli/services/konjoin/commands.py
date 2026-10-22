@@ -11,7 +11,7 @@ from pathlib import Path
 from playwright.sync_api import BrowserContext
 
 from uu_cli import auth
-from uu_cli.login import do_login, single_sign_on
+from uu_cli.login import log_in, single_sign_on
 from uu_cli.services.konjoin.api import (
     BASE_URL, LOGIN_URL, NotLoggedIn, current_user, get_json, project_pages,
 )
@@ -46,7 +46,7 @@ def ensure_login(ctx: BrowserContext, args) -> bool:
     if not auth.ready_to_login(args):
         print(f"ERROR: Cannot log in: {auth.CANNOT_LOGIN}.", file=sys.stderr)
         return False
-    do_login(ctx, LOGIN_URL, args.solisid, args.password, auth.otp_route(args), name="Konjoin")
+    log_in(ctx, LOGIN_URL, args, name="Konjoin")
     return bool(current_user(ctx))
 
 

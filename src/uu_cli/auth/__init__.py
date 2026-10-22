@@ -7,6 +7,8 @@ registered in ROUTES:
   prompt       ask you for the code from your own authenticator app
 
 `--auth auto` (the default) uses the secret when one is set and asks you otherwise.
+`--auth browser` skips the form altogether: you log in yourself in a browser window
+(uu_cli.login.browser_login), on UU's own login page.
 """
 
 from __future__ import annotations
@@ -30,7 +32,8 @@ class OtpRoute(Protocol):
 ROUTES = {route.name: route for route in (TotpSecret, PromptCode)}
 
 CANNOT_LOGIN = ("a login needs --password and --totp (or save-creds), "
-                "or a terminal to type the code from your authenticator app")
+                "a terminal to type the code from your authenticator app, "
+                "or a screen for --auth browser")
 
 
 def add_login_args(parser, d=lambda v: v) -> None:
@@ -40,11 +43,12 @@ def add_login_args(parser, d=lambda v: v) -> None:
                         help="Visible in `ps` and shell history; prefer save-creds")
     parser.add_argument("--totp",     default=d(os.environ.get("BRIGHTSPACE_TOTP_SECRET", "")),
                         help="TOTP secret key (base32), not a 6-digit code; prefer save-creds")
-    parser.add_argument("--auth", choices=["auto", *ROUTES],
+    parser.add_argument("--auth", choices=["auto", *ROUTES, "browser"],
                         default=d(os.environ.get("BRIGHTSPACE_AUTH", "auto")),
-                        help="How to answer the one-time-code step: totp-secret generates it, "
-                             "prompt asks for the code from your authenticator app; "
-                             "auto (default) uses the secret when one is set")
+                        help="How to log in: totp-secret generates the one-time code, "
+                             "prompt asks for the code from your authenticator app, "
+                             "browser opens a window where you log in yourself; "
+                             "auto (default) uses the secret when one is set, else prompt")
 
 
 def interactive() -> bool:
@@ -57,8 +61,16 @@ def ready_to_login(args) -> bool:
 
     Missing details come from the encrypted credentials file first. Without a TOTP secret the
     prompt route asks you for the code, and for a missing Solis-id or password too; that needs a
-    terminal, so unattended runs still need the secret.
+    terminal, so unattended runs still need the secret. The browser route needs nothing but a
+    screen to open its window on.
     """
+    if args.auth == "browser":
+        if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY")
+                                                     or os.environ.get("WAYLAND_DISPLAY")):
+            print("ERROR: --auth browser needs a screen to open its window on "
+                  "(DISPLAY or WAYLAND_DISPLAY is not set).", file=sys.stderr)
+            return False
+        return True
     have_creds(args)
     if args.auth == "auto":
         args.auth = "totp-secret" if args.totp or not interactive() else "prompt"
