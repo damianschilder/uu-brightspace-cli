@@ -189,6 +189,7 @@ contact details; add `--keep-contact-details` if you need them.
 uu library open 10.1016/j.knosys.2025.113564         # Through UU's library; the PDF you open is saved
 uu library open https://link.springer.com/article/… -o papers/
 uu library get 10.1016/j.knosys.2025.113564          # The same window, which opens the PDF itself
+uu library link 10.1016/j.knosys.2025.113564         # Only the link through UU's library, for your own browser
 uu library watch -o papers/                          # get, for each DOI an AI agent adds to papers/wanted.txt
 uu library elsevier 10.1016/j.knosys.2025.113564     # Elsevier's API (needs ELSEVIER_API_KEY)
 ```
@@ -212,6 +213,10 @@ window, through the proxy when the address is the publisher's own, and saves it 
 `open` does. When a page names no PDF, or a publisher's checks keep the PDF from coming
 within half a minute, the window stays open and asks you to open it yourself. One
 article per run, always in a window on your screen: never a download in the background.
+
+`link` prints the same proxy link without opening anything, one line per DOI or address.
+Open it in the browser you already use: it logs in when UU asks, the way the library's own
+links do. It needs no screen and no session of its own, so it also works over SSH.
 
 #### With an AI coding agent
 
