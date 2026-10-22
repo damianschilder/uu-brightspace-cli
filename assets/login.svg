@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
   <title id="title">How uu logs in</title>
-  <desc id="desc">Three ways through UU's one-time-code step (--auth prompt, totp-secret or browser) lead to one UU session, which Brightspace, Konjoin and Library all share. GitLab has its own sign-in: your Solis-id and password, without a code.</desc>
+  <desc id="desc">Three ways through UU's one-time-code step (--auth prompt, totp-secret or browser) lead to one UU session, which Brightspace, Konjoin, Library and edu.nl all share. GitLab has its own sign-in: your Solis-id and password, without a code.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#16181f"/>
@@ -38,9 +38,10 @@
     <path d="M370 124 C425 124 415 196 466 196"/>
     <path d="M370 232 L466 232"/>
     <path d="M370 340 C425 340 415 268 466 268"/>
-    <path d="M734 196 C785 196 775 124 826 124"/>
-    <path d="M734 232 L826 232"/>
-    <path d="M734 268 C785 268 775 340 826 340"/>
+    <path d="M734 178 C785 178 775 110 826 110"/>
+    <path d="M734 214 C785 214 775 191 826 191"/>
+    <path d="M734 250 C785 250 775 272 826 272"/>
+    <path d="M734 286 C785 286 775 353 826 353"/>
   </g>
 
   <!-- Left: how the code step is answered -->
@@ -82,25 +83,28 @@
   <!-- Right: the platforms sharing that session -->
   <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
     <g transform="translate(830 78)">
-      <rect width="330" height="92" rx="12" fill="#1a1c23" stroke="#2a2d36"/>
-      <text x="20" y="34" font-size="18" font-weight="700" fill="#f4f4f5">Brightspace</text>
-      <text x="310" y="34" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#f5b301">uu brightspace</text>
-      <text x="20" y="64" font-size="13.5" fill="#a1a1aa">Courses, deadlines, grades,</text>
-      <text x="20" y="82" font-size="13.5" fill="#a1a1aa">announcements and material download</text>
+      <rect width="330" height="65" rx="12" fill="#1a1c23" stroke="#2a2d36"/>
+      <text x="20" y="27" font-size="17" font-weight="700" fill="#f4f4f5">Brightspace</text>
+      <text x="310" y="27" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#f5b301">uu brightspace</text>
+      <text x="20" y="49" font-size="13.5" fill="#a1a1aa">Courses, deadlines, grades and material</text>
     </g>
-    <g transform="translate(830 186)">
-      <rect width="330" height="92" rx="12" fill="#1a1c23" stroke="#2a2d36"/>
-      <text x="20" y="34" font-size="18" font-weight="700" fill="#f4f4f5">Konjoin</text>
-      <text x="310" y="34" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#f5b301">uu konjoin</text>
-      <text x="20" y="64" font-size="13.5" fill="#a1a1aa">Research, thesis and</text>
-      <text x="20" y="82" font-size="13.5" fill="#a1a1aa">internship projects</text>
+    <g transform="translate(830 159)">
+      <rect width="330" height="65" rx="12" fill="#1a1c23" stroke="#2a2d36"/>
+      <text x="20" y="27" font-size="17" font-weight="700" fill="#f4f4f5">Konjoin</text>
+      <text x="310" y="27" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#f5b301">uu konjoin</text>
+      <text x="20" y="49" font-size="13.5" fill="#a1a1aa">Research, thesis and internship projects</text>
     </g>
-    <g transform="translate(830 294)">
-      <rect width="330" height="92" rx="12" fill="#1a1c23" stroke="#2a2d36"/>
-      <text x="20" y="34" font-size="18" font-weight="700" fill="#f4f4f5">Library</text>
-      <text x="310" y="34" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#f5b301">uu library</text>
-      <text x="20" y="64" font-size="13.5" fill="#a1a1aa">Journal articles through</text>
-      <text x="20" y="82" font-size="13.5" fill="#a1a1aa">UU's library</text>
+    <g transform="translate(830 240)">
+      <rect width="330" height="65" rx="12" fill="#1a1c23" stroke="#2a2d36"/>
+      <text x="20" y="27" font-size="17" font-weight="700" fill="#f4f4f5">Library</text>
+      <text x="310" y="27" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#f5b301">uu library</text>
+      <text x="20" y="49" font-size="13.5" fill="#a1a1aa">Journal articles through UU's library</text>
+    </g>
+    <g transform="translate(830 321)">
+      <rect width="330" height="65" rx="12" fill="#1a1c23" stroke="#2a2d36"/>
+      <text x="20" y="27" font-size="17" font-weight="700" fill="#f4f4f5">edu.nl</text>
+      <text x="310" y="27" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#f5b301">uu edunl</text>
+      <text x="20" y="49" font-size="13.5" fill="#a1a1aa">Short links on SURF's edu.nl</text>
     </g>
     <text x="830" y="420" font-size="13.5" fill="#a1a1aa">Logged in to one, logged in to all:</text>
     <text x="830" y="440" font-size="13.5" fill="#a1a1aa">no second code while the session lasts.</text>

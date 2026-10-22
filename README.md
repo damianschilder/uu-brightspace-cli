@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="uu: Utrecht University platforms from your terminal (Brightspace, Konjoin, Library, GitLab)" width="100%">
+  <img src="assets/banner.svg" alt="uu: Utrecht University platforms from your terminal (Brightspace, Konjoin, Library, GitLab, edu.nl)" width="100%">
 </p>
 
 # UU CLI
@@ -64,7 +64,7 @@ that Brightspace, Konjoin and Library share. GitLab signs you in on its own page
 your Solis-id and password and no code ([GitLab](#gitlab)):
 
 <p align="center">
-  <img src="assets/login.svg" alt="Three ways through the code step (--auth prompt, totp-secret or browser) lead to one UU login, kept between runs and shared by Brightspace, Konjoin and Library. GitLab has its own sign-in: Solis-id and password, no code" width="100%">
+  <img src="assets/login.svg" alt="Three ways through the code step (--auth prompt, totp-secret or browser) lead to one UU login, kept between runs and shared by Brightspace, Konjoin, Library and edu.nl. GitLab has its own sign-in: Solis-id and password, no code" width="100%">
 </p>
 
 | `--auth` | The code comes from | Good for |
