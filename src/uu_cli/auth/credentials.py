@@ -1,4 +1,4 @@
-"""Solis-id, password and TOTP secret, stored encrypted with a passphrase."""
+"""Solis-id, password and (optionally) TOTP secret, stored encrypted with a passphrase."""
 
 from __future__ import annotations
 
@@ -66,9 +66,12 @@ def cmd_save_creds(args) -> int:
     """Prompt for login details and store them encrypted in CREDS_FILE."""
     solisid  = args.solisid  or input("Solis-id: ").strip()
     password = args.password or getpass.getpass("Password: ")
-    secret   = (args.totp or getpass.getpass("TOTP secret: ")).replace(" ", "").upper()
+    secret   = (args.totp or getpass.getpass(
+        "TOTP secret (leave empty to type the code from your app at each login): ")
+    ).replace(" ", "").upper()
     try:
-        totp(secret)
+        if secret:
+            totp(secret)
     except Exception:
         print("ERROR: TOTP secret is not valid base32 (e.g. JBSWY3DPEHPK3PXP).",
               file=sys.stderr)

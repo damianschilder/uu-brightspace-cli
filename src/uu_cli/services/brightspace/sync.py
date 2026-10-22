@@ -12,8 +12,7 @@ from urllib.parse import urljoin, urlparse
 
 from playwright.sync_api import BrowserContext, Page
 
-from uu_cli import paths
-from uu_cli.auth.credentials import have_creds
+from uu_cli import auth, paths
 from uu_cli.login import do_login
 from uu_cli.paths import safe_filename
 from uu_cli.services.brightspace.api import (
@@ -94,9 +93,9 @@ def cmd_sync_all(ctx: BrowserContext, args) -> int:
 
 def _sync_course(ctx: BrowserContext, args, ou: str, output: Optional[str]) -> tuple[int, int, int]:
     """Download ALL course content files to a local directory."""
-    if not args.password or not args.totp:
-        args.password = os.environ.get("BRIGHTSPACE_PASSWORD", "")
-        args.totp     = os.environ.get("BRIGHTSPACE_TOTP_SECRET", "")
+    # Fill gaps only: a password typed at the prompt route must survive the next course.
+    args.password = args.password or os.environ.get("BRIGHTSPACE_PASSWORD", "")
+    args.totp     = args.totp     or os.environ.get("BRIGHTSPACE_TOTP_SECRET", "")
 
     # ── Establish an authenticated page context first ──────────────────────
     # A cached bearer token authenticates /d2l/api/* but NOT /content/enforced/*
@@ -127,11 +126,11 @@ def _sync_course(ctx: BrowserContext, args, ou: str, output: Optional[str]) -> t
             print("[SYNC] Reusing authenticated browser session.", file=sys.stderr)
 
     if not token:
-        if not have_creds(args):
-            print("ERROR: --password and --totp (or save-creds) required for sync (no authenticated session).", file=sys.stderr)
+        if not auth.ready_to_login(args):
+            print(f"ERROR: No authenticated session; {auth.CANNOT_LOGIN}.", file=sys.stderr)
             return 1, 0, 0
         print("[SYNC] Session expired — fresh login...", file=sys.stderr)
-        do_login(ctx, BASE_URL, args.solisid, args.password, args.totp)
+        do_login(ctx, BASE_URL, args.solisid, args.password, auth.otp_route(args))
         # Do not re-navigate — do_login already lands on /d2l/home
         page.wait_for_timeout(2000)
 
