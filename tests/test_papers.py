@@ -30,6 +30,7 @@ def run(main, argv, capsys):
     (f"https://doi.org/{DOI}", DOI),
     ("https://link.springer.com/article/10.1007/s10462-023-10512-3?x=1", "10.1007/s10462-023-10512-3"),
     (f"https://doi.org/{DOI}.", DOI),
+    ("https://link.springer.com/content/pdf/10.1007/978-3-319-75553-3.pdf", "10.1007/978-3-319-75553-3"),
     ("https://www.sciencedirect.com/science/article/pii/S0950705125006100", None),
 ])
 def test_doi_of(ref, doi):
@@ -59,6 +60,18 @@ def test_open_logs_in_at_the_library_and_saves_the_pdf_you_open(window, fake_uu,
     assert fake_uu.library_links == [f"auth=uushibboleth&url=https://doi.org/{DOI}"]
     assert fake_uu.library_logins == 1 and len(fake_uu.codes) == 1  # you logged in, in the window
     assert len(window) == 1 and not window[0].browser.is_connected()
+
+
+@pytest.mark.browser
+def test_a_pdf_with_its_own_doi_is_named_after_it(window, fake_uu, state, capsys):
+    # A chapter page that also offers the whole book, as SpringerLink does.
+    fake_uu.article_pdf = "/content/pdf/10.1007/978-3-319-75553-3.pdf"
+
+    code, out, err = run(papers, ["open", "10.1007/978-3-319-75553-3_9", "-o", str(state)], capsys)
+
+    assert code == 0, err
+    assert (state / "10.1007_978-3-319-75553-3.pdf").read_bytes() == ARTICLE_PDF
+    assert "its own DOI, 10.1007/978-3-319-75553-3" in err and "whole book" in err
 
 
 @pytest.mark.browser

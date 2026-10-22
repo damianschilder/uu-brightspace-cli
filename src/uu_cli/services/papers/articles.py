@@ -13,7 +13,8 @@ DOI = re.compile(r"10\.\d{4,9}/[^\s?#]+")
 def doi_of(ref: str) -> str | None:
     """The DOI in ref (a bare DOI, doi:…, a doi.org link or a publisher link that has one), or None."""
     found = DOI.search(unquote(ref.strip()))
-    return found.group(0).rstrip(".,;") if found else None
+    # A PDF's address may end in the DOI plus ".pdf" (Springer: /content/pdf/<doi>.pdf).
+    return found.group(0).rstrip(".,;").removesuffix(".pdf") if found else None
 
 
 def article_url(ref: str) -> str:

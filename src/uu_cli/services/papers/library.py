@@ -16,7 +16,7 @@ from pathlib import Path
 from playwright.sync_api import BrowserContext, Download, Error as PlaywrightError, Response
 
 from uu_cli import browser
-from uu_cli.services.papers.articles import save_pdf
+from uu_cli.services.papers.articles import doi_of, save_pdf
 
 PROXY = "https://utrechtuniversity.idm.oclc.org"
 
@@ -30,12 +30,14 @@ def proxy_url(article: str) -> str:
     return f"{PROXY}/login?auth=uushibboleth&url={article}"
 
 
-def open_article(ctx: BrowserContext, article: str, out_dir: Path, name: str,
+def open_article(ctx: BrowserContext, article: str, out_dir: Path, doi: str | None,
                  keep_open: bool = False) -> list[Path]:
     """Open article through the proxy in a window with ctx's session; returns the PDFs saved.
 
-    The window closes once a PDF is saved (unless keep_open), when you close it, or after
-    WINDOW_TIMEOUT_S. Its session goes back into ctx, so the next run skips the logins.
+    A PDF is named after its own DOI when its address has one, else after the article's doi:
+    a chapter page can also offer the whole book. The window closes once a PDF is saved (unless
+    keep_open), when you close it, or after WINDOW_TIMEOUT_S. Its session goes back into ctx, so
+    the next run skips the logins.
     """
     window = browser.open_window(ctx)
     found: list[Download | Response] = []  # saved from the loop below, not from the handlers
@@ -48,10 +50,15 @@ def open_article(ctx: BrowserContext, article: str, out_dir: Path, name: str,
         deadline = time.monotonic() + WINDOW_TIMEOUT_S
         while time.monotonic() < deadline:
             while found:
-                path = _save(found.pop(0), window, out_dir, name)
+                item = found.pop(0)
+                own = doi_of(item.url)
+                path = _save(item, window, out_dir, own or doi or "article")
                 if path and path not in saved:
                     saved.append(path)
                     print(f"Saved: {path}")
+                    if own and doi and own != doi:
+                        print(f"[LIBRARY] That PDF has its own DOI, {own}, not the article's: "
+                              "probably the whole book or issue.", file=sys.stderr)
             if saved and not keep_open:
                 break
             pages = [p for p in window.pages if not p.is_closed()]

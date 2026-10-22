@@ -29,14 +29,14 @@ def cmd_open(args) -> int:
         print(f"ERROR: {err}", file=sys.stderr)
         return 2
     out = Path(args.output)
-    name = articles.doi_of(args.article) or "article"
     print("[LIBRARY] Opening the article through UU's library. Log in there if UU asks, then "
           f"open or download the PDF; it's saved to {out}/.", file=sys.stderr)
 
     with sync_playwright() as pw:
         ctx = browser.launch(pw, args.session_dir)
         try:
-            saved = library.open_article(ctx, url, out, name, keep_open=args.keep_open)
+            saved = library.open_article(ctx, url, out, articles.doi_of(args.article),
+                                         keep_open=args.keep_open)
         finally:
             browser.save_session(ctx, args.session_dir)
     if not saved:

@@ -190,7 +190,9 @@ uu papers elsevier 10.1016/j.knosys.2025.113564      # Elsevier's API (needs ELS
 library proxy (`utrechtuniversity.idm.oclc.org`, the same one the library's own links
 use) and opens that in a browser window with your UU session, so while UU's session
 lasts there is no login. Find the PDF as you always would: the first PDF you open or
-download is saved, named after the DOI, and the window closes. `--keep-open` keeps it
+download is saved, named after its DOI, and the window closes. When the PDF's address
+has a DOI of its own, that one names the file and the CLI says so: a chapter page can
+also offer the whole book. `--keep-open` keeps it
 open for more (supplementary material) until you close it. It works for every publisher
 UU subscribes to, and like `--auth browser` it needs a screen.
 
