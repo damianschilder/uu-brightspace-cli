@@ -1,10 +1,11 @@
-"""An offline stand-in for UU's Solis-id login, Brightspace and Konjoin, served through Playwright routing.
+"""An offline stand-in for UU's Solis-id login, Brightspace, Konjoin and the library proxy, served
+through Playwright routing.
 
 It models what the CLI relies on, not the real services: a NetIQ-style form with a one-time-code
 step and a single-sign-on session, SAML-style hops back that set a session cookie, a D2L token
-in localStorage, SURFconext's institution picker in front of Konjoin, and the API endpoints the
-commands call. Every other request is aborted and redirects happen in the page, so nothing
-leaves the machine.
+in localStorage, SURFconext's institution picker in front of Konjoin, the library proxy's login
+link in front of an article with a PDF, and the API endpoints the commands call. Every other
+request is aborted and redirects happen in the page, so nothing leaves the machine.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import pyotp
 BRIGHTSPACE = "https://uu.brightspace.com"
 KONJOIN = "https://uu.konjoin.nl"
 SURFCONEXT = "https://engine.surfconext.nl"
+LIBRARY = "https://utrechtuniversity.idm.oclc.org"
 IDP = "https://login.uu.nl"
 SOLISID = "1234567"
 PASSWORD = "correct horse"
@@ -31,6 +33,7 @@ PDF = b"%PDF-1.4\n% fake course file\n"
 ACS = {
     "brightspace": f"{BRIGHTSPACE}/d2l/lp/auth/saml/acs",
     "konjoin": f"{KONJOIN}/saml2/acs",
+    "library": f"{LIBRARY}/Shibboleth.sso/SAML2/POST",
 }
 
 # Lets the CLI's fetch() from about:blank reach the API, as a cached-token command does.
@@ -123,6 +126,11 @@ PROJECTS = [
      "created_at": "2026-05-01T10:00:00.000000Z", "close_at": None},
 ]
 PER_PAGE = 2
+
+# An article behind the library proxy; "View PDF" opens the PDF in a new tab, as ScienceDirect does.
+ARTICLE = '<h1>A fake article</h1><a id="pdf" href="/article/main.pdf" target="_blank">View PDF</a>'
+ARTICLE_PDF = b"%PDF-1.7\n% fake article\n"
+
 # What Konjoin's real pages wait for before they count as loaded (seen 22-10-2026).
 THIRD_PARTY = """<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato">
 <script src="https://cdn.polyfill.io/v2/polyfill.min.js"></script>"""
@@ -142,6 +150,8 @@ class FakeUU:
         self.logins = 0             # completed logins at Brightspace
         self.konjoin_logins = 0     # completed logins at Konjoin
         self.wayf_choices = 0       # times SURFconext's institution picker was answered
+        self.library_logins = 0     # completed logins at the library proxy
+        self.library_links: list[str] = []  # query strings of the proxy login links opened
         self.elsewhere: list[str] = []  # requests for hosts this fake doesn't serve (aborted)
 
     def install(self, ctx, by_hand: bool = False) -> None:
@@ -158,6 +168,7 @@ class FakeUU:
             BRIGHTSPACE: self._brightspace,
             KONJOIN: self._konjoin,
             SURFCONEXT: self._surfconext,
+            LIBRARY: lambda *a: self._library(*a, by_hand=by_hand),
         }.get(origin)
         if handler:
             handler(route, req, url)
@@ -257,6 +268,29 @@ class FakeUU:
             if project is None:
                 return _json(route, {"message": "Not found."}, status=404)
             return _json(route, project)
+        route.fulfill(status=404, body="not found")
+
+    # ── the library proxy (EZproxy) ───────────────────────────────────────────
+    def _library(self, route, req, url, by_hand: bool = False) -> None:
+        path = url.path
+        logged_in = "ezproxy=" in _cookies(req)
+        if path == "/login":
+            self.library_links.append(url.query)
+            if logged_in:
+                return _redirect(route, f"{LIBRARY}/article")
+            return _redirect(route, f"{IDP}/nidp/app/login?sp=library")
+        if path == "/Shibboleth.sso/SAML2/POST":
+            self.library_logins += 1
+            return _redirect(route, f"{LIBRARY}/article", cookie="ezproxy=l1b; Path=/")
+        if not logged_in:
+            return route.fulfill(status=403, body="not logged in at the proxy")
+        if path == "/article":
+            # You, at the window: click "View PDF".
+            you = "<script>setTimeout(() => document.getElementById('pdf').click(), 300)</script>"
+            return _html(route, ARTICLE + (you if by_hand else ""))
+        if path == "/article/main.pdf":
+            return route.fulfill(status=200, body=ARTICLE_PDF,
+                                 headers={"Content-Type": "application/pdf"})
         route.fulfill(status=404, body="not found")
 
 

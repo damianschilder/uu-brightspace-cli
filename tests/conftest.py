@@ -12,6 +12,7 @@ from uu_cli import auth, paths
 LOGIN_ENV = [
     "BRIGHTSPACE_SOLISID", "BRIGHTSPACE_PASSWORD", "BRIGHTSPACE_TOTP_SECRET",
     "BRIGHTSPACE_PASSPHRASE", "BRIGHTSPACE_ORG_UNIT", "BRIGHTSPACE_AUTH",
+    "ELSEVIER_API_KEY", "ELSEVIER_INSTTOKEN",
 ]
 
 
@@ -58,3 +59,27 @@ def fake_uu(monkeypatch) -> FakeUU:
     wait = Page.wait_for_timeout
     monkeypatch.setattr(Page, "wait_for_timeout", lambda self, timeout: wait(self, min(timeout, 1500)))
     return fake
+
+
+@pytest.fixture
+def window(request, fake_uu, monkeypatch):
+    """The window --auth browser and `uu papers open` open, headless here; returns the windows opened.
+
+    By default you fill in UU's forms in it (and click "View PDF"); parametrize with False for a
+    window nobody uses.
+    """
+    from uu_cli import browser
+
+    by_hand = getattr(request, "param", True)
+    opened = []
+    real_open_window = browser.open_window
+
+    def open_window(ctx):
+        win = real_open_window(ctx, headless=True)
+        fake_uu.install(win, by_hand=by_hand)
+        opened.append(win)
+        return win
+
+    monkeypatch.setattr(browser, "open_window", open_window)
+    monkeypatch.setenv("DISPLAY", ":0")
+    return opened

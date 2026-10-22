@@ -22,27 +22,6 @@ def run(main, argv, capsys):
     return exc.value.code, out, err
 
 
-@pytest.fixture
-def window(request, fake_uu, monkeypatch):
-    """The window --auth browser opens, headless here; returns the windows opened.
-
-    By default you fill in UU's forms in it; parametrize with False for a window nobody uses.
-    """
-    by_hand = getattr(request, "param", True)
-    opened = []
-    real_open_window = browser.open_window
-
-    def open_window(ctx):
-        win = real_open_window(ctx, headless=True)
-        fake_uu.install(win, by_hand=by_hand)
-        opened.append(win)
-        return win
-
-    monkeypatch.setattr(browser, "open_window", open_window)
-    monkeypatch.setenv("DISPLAY", ":0")
-    return opened
-
-
 def test_browser_route_needs_a_screen(monkeypatch, capsys):
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.delenv("DISPLAY", raising=False)

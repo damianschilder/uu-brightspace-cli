@@ -56,6 +56,12 @@ def interactive() -> bool:
     return sys.stdin.isatty()
 
 
+def has_screen() -> bool:
+    """Whether a browser window can open here (on Linux: DISPLAY or WAYLAND_DISPLAY, as WSLg sets)."""
+    return not sys.platform.startswith("linux") or bool(os.environ.get("DISPLAY")
+                                                         or os.environ.get("WAYLAND_DISPLAY"))
+
+
 def ready_to_login(args) -> bool:
     """Fill in what a login needs and settle args.auth; True when a login can go ahead.
 
@@ -65,8 +71,7 @@ def ready_to_login(args) -> bool:
     screen to open its window on.
     """
     if args.auth == "browser":
-        if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY")
-                                                     or os.environ.get("WAYLAND_DISPLAY")):
+        if not has_screen():
             print("ERROR: --auth browser needs a screen to open its window on "
                   "(DISPLAY or WAYLAND_DISPLAY is not set).", file=sys.stderr)
             return False
