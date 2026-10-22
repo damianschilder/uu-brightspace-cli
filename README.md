@@ -17,6 +17,8 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
 - **[GitLab](https://git.science.uu.nl)** (`uu gitlab`): the Faculty of Science's GitLab.
   Lists your projects, creates an empty private project for an existing repo and adds your
   public SSH key.
+- **[edu.nl](https://edu.nl)** (`uu edunl`): SURF's URL shortener for education and research.
+  Makes a short link, with an optional label, and lists yours.
 
 ## Features
 
@@ -27,8 +29,8 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
 - **Headless login** with cached session and token: type one code from your
   authenticator app, or let the CLI generate codes from your TOTP secret.
 - **One login for every platform** while UU's session lasts: after a Brightspace login,
-  Konjoin logs in without asking for another code. GitLab is the exception: it has its own
-  Solis-id sign-in, without a code.
+  Konjoin and edu.nl log in without asking for another code. GitLab is the exception: it has
+  its own Solis-id sign-in, without a code.
 
 ## Limitations
 
@@ -37,8 +39,8 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
   window (`--auth browser`) shows UU's own login page, so push should work there, but it
   hasn't been tried yet.
 - **UU only.** The login flow is written for UU's Solis-id login page.
-- **Can break** if UU, D2L, SURFconext, Konjoin, UU's library proxy or GitLab change their
-  pages.
+- **Can break** if UU, D2L, SURFconext, Konjoin, UU's library proxy, GitLab or edu.nl change
+  their pages.
 
 ## Install
 
@@ -284,6 +286,29 @@ goes in as it is, and prints the `git remote add` line for it. With `--visibilit
 everyone who can log in to this GitLab sees it. `add-key` only reads a `.pub` file and
 opens no other, so a private key can't be sent by mistake. Optional: `UU_GITLAB_URL`.
 
+### edu.nl
+
+```sh
+uu edunl shorten https://git.science.uu.nl/you/thesis     # Prints the short link
+uu edunl shorten https://example.org/form --label survey  # With a label only you see
+uu edunl links                                            # Your links, newest first
+uu edunl links --search survey --json
+uu edunl login                                            # Log in ahead of time
+```
+
+[edu.nl](https://edu.nl/about) is SURF's URL shortener, free for students and staff of
+institutions connected to SURF. It logs in through SURFconext, which the CLI answers with
+"Utrecht University", then UU's Solis-id page as usual, so a UU session from another service
+carries over. edu.nl has no API: the CLI fills in the same "Shorten a link" form you would,
+one link per command, and reads your overview. `shorten` prints only the link on stdout, so a
+script can take it.
+
+Before you make one, know that an edu.nl link
+[never expires](https://edu.nl/about), anyone can open it, and a deleted link is never given
+out again ([support](https://edu.nl/support)). Change where a link points, or delete it, on the
+site; questions go to kort@surf.nl. edu.nl publishes no terms of use beyond those two pages
+(checked 22-10-2026), and none about scripts. Optional: `UU_EDUNL_URL`.
+
 ## Docker
 
 ```sh
@@ -312,6 +337,7 @@ src/uu_cli/
                        the encrypted credentials file
   services/
     brightspace/       api.py (token, /d2l/api), commands.py, sync.py, sheets.py, cli.py
+    edunl/             api.py (the /manage/ form and overview, no API), commands.py, cli.py
     gitlab/            api.py (/api/v4 from a GitLab page, with its CSRF token),
                        commands.py (its own Solis-ID sign-in), cli.py
     konjoin/           api.py (/api/project), commands.py, cli.py
@@ -319,7 +345,7 @@ src/uu_cli/
                        articles.py (DOIs, saved PDFs), cli.py
 brightspace-cli.py     the old entry point, kept for existing scripts and the Docker image
 tests/                 pytest suite; fake_uu.py is an offline stand-in for UU's login,
-                       SURFconext, Brightspace, Konjoin, the library proxy and GitLab
+                       SURFconext, Brightspace, Konjoin, the library proxy, GitLab and edu.nl
 ```
 
 A new platform is a package under `services/` with a `cli.py` exposing `main(argv, prog)`,

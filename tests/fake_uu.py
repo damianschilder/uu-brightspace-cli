@@ -1,18 +1,20 @@
-"""An offline stand-in for UU's Solis-id login, Brightspace, Konjoin, the library proxy and UU's
-GitLab, served through Playwright routing.
+"""An offline stand-in for UU's Solis-id login, Brightspace, Konjoin, the library proxy, UU's
+GitLab and edu.nl, served through Playwright routing.
 
 It models what the CLI relies on, not the real services: a NetIQ-style form with a one-time-code
 step and a single-sign-on session, SAML-style hops back that set a session cookie, a D2L token
-in localStorage, SURFconext's institution picker in front of Konjoin, the library proxy's login
-link in front of an article with a PDF, GitLab's own Solis-ID sign-in with CSRF-checked API
-calls, and the API endpoints the commands call. Every other request is aborted and redirects
-happen in the page, so nothing leaves the machine.
+in localStorage, SURFconext's institution picker in front of Konjoin and edu.nl, the library
+proxy's login link in front of an article with a PDF, GitLab's own Solis-ID sign-in with
+CSRF-checked API calls, edu.nl's shortening form and overview, and the API endpoints the
+commands call. Every other request is aborted and redirects happen in the page, so nothing
+leaves the machine.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 from urllib.parse import parse_qs, urlparse
 
@@ -23,6 +25,7 @@ KONJOIN = "https://uu.konjoin.nl"
 SURFCONEXT = "https://engine.surfconext.nl"
 LIBRARY = "https://utrechtuniversity.idm.oclc.org"
 GITLAB = "https://git.science.uu.nl"
+EDUNL = "https://edu.nl"
 IDP = "https://login.uu.nl"
 SOLISID = "1234567"
 PASSWORD = "correct horse"
@@ -36,7 +39,11 @@ ACS = {
     "brightspace": f"{BRIGHTSPACE}/d2l/lp/auth/saml/acs",
     "konjoin": f"{KONJOIN}/saml2/acs",
     "library": f"{LIBRARY}/Shibboleth.sso/SAML2/POST",
+    "edunl": f"{EDUNL}/mellon/postResponse",
 }
+
+# The services that reach UU's login through SURFconext's institution picker.
+VIA_SURFCONEXT = ("konjoin", "edunl")
 
 # Lets the CLI's fetch() from about:blank reach the API, as a cached-token command does.
 CORS = {
@@ -61,7 +68,7 @@ OTP_FORM = """
 WAYF = f"""<h1>Select an institution to log in</h1>
 <ul>
   <li><a href="{SURFCONEXT}/wayf/umc">UMC Utrecht</a></li>
-  <li><a href="{IDP}/nidp/app/login?sp=konjoin">Utrecht University</a></li>
+  <li><a href="{IDP}/nidp/app/login?sp={{sp}}">Utrecht University</a></li>
 </ul>"""
 
 HOME = """<h1>My Home</h1>
@@ -165,6 +172,40 @@ GITLAB_USER = {"id": 7, "username": "student", "name": "Test Student"}
 THIRD_PARTY = """<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato">
 <script src="https://cdn.polyfill.io/v2/polyfill.min.js"></script>"""
 
+# edu.nl's pages, trimmed from what the site served on 22-10-2026.
+EDUNL_LOGOUT = '<div class="systray"><a href="/logout" aria-label="Logout">⏻</a></div>'
+EDUNL_FORM = """<form name="short_url" method="post" novalidate="novalidate">
+  <input type="url" id="short_url_longUrl" name="short_url[longUrl]" value="{value}">
+  {error}
+  <button class="btn btn-primary" type="submit">Shorten it!</button>
+  <input type="hidden" id="short_url__token" name="short_url[_token]" value="{csrf}">
+</form>"""
+EDUNL_URL_ERROR = ('<span class="invalid-feedback d-block"><span class="form-error-message">Oops, this '
+                   'is not quite a correct URL, possibly a typo or missing the http:// or https:// at '
+                   'the beginning of the URL!</span></span>')
+EDUNL_CREATED = """<h2>Your new link is ready to use</h2>
+Your new link is:<br/><b>{short}</b><br/><br/>
+This one refers to:<br/><b>{url}</b><br/><br/>
+<a href="#" class="cpy" data-clipboard-text="{short}">Copy</a>
+<form name="short_url" method="post" action="/manage/url/{code}/edit" class="form-inline">
+  <input type="hidden" name="_token" value="{csrf}">
+  <input type="hidden" name="short_url[longUrl]" value="{url}">
+  <input type="text" id="labelfield" name="short_url[label]" value="" required maxlength="255">
+  <button type="submit" class="btn btn-sm btn-secondary">Save</button>
+  <input type="hidden" id="short_url__token" name="short_url[_token]" value="{csrf}">
+</form>"""
+EDUNL_ROW = """<tr>
+  <td><button class="fabutton actieknop cpy" type="button" data-clipboard-text="{short}"></button>
+      <a href="/manage/url/{code}/edit">edit</a></td>
+  <th scope="row">{clicks}</th>
+  <td><a target="_blank" href="{short}">{short_text}</a></td>
+  <td>{date}</td>
+  <td class="text-truncate telang"><a href="{url}" target="_blank"></a> {url}</td>
+  <td class="text-truncate telang" title="{label}">{label}</td>
+</tr>"""
+EDUNL_CSRF = "edunl-csrf"
+EDUNL_PER_PAGE = 2
+
 
 def make_jwt(exp: float) -> str:
     """An unsigned JWT with an 'exp' claim, enough for the CLI's expiry check."""
@@ -192,6 +233,9 @@ class FakeUU:
         self.gitlab_created: list[dict] = []  # what the CLI sent to create each project
         self.gitlab_projects: list[dict] = []
         self.gitlab_keys: list[dict] = []
+        self.edunl_logins = 0       # completed logins at edu.nl
+        self.edunl_links: list[dict] = []  # your links, newest first: code, url, label, clicks, date
+        self.edunl_posts: list[dict] = []  # every form edu.nl received
 
     def install(self, ctx, by_hand: bool = False) -> None:
         """Serve the fake to ctx. by_hand: someone at this browser fills in UU's forms (--auth browser)."""
@@ -209,6 +253,7 @@ class FakeUU:
             SURFCONEXT: self._surfconext,
             LIBRARY: lambda *a: self._library(*a, by_hand=by_hand),
             GITLAB: lambda *a: self._gitlab(*a, by_hand=by_hand),
+            EDUNL: self._edunl,
         }.get(origin)
         if handler:
             handler(route, req, url)
@@ -223,7 +268,7 @@ class FakeUU:
         query = parse_qs(url.query)
         sp = query.get("sp", ["brightspace"])[0]
         if req.method == "GET":
-            if sp == "konjoin":  # only SURFconext's picker links here
+            if sp in VIA_SURFCONEXT:  # only SURFconext's picker links here
                 self.wayf_choices += 1
             if "IDP_SESSION=" in _cookies(req):  # single sign-on: still logged in at UU
                 return _redirect(route, ACS[sp])
@@ -241,10 +286,11 @@ class FakeUU:
             return _redirect(route, ACS[sp], cookie="IDP_SESSION=1; Path=/")
         return _html(route, "<p>Wrong code.</p>" + OTP_FORM.format(sp=sp))
 
-    # ── SURFconext, in front of Konjoin ───────────────────────────────────────
+    # ── SURFconext, in front of Konjoin and edu.nl ────────────────────────────
     def _surfconext(self, route, req, url) -> None:
         if url.path.startswith("/authentication/idp/single-sign-on"):
-            return _html(route, WAYF)
+            sp = parse_qs(url.query).get("sp", ["konjoin"])[0]  # who asked, as the real request says
+            return _html(route, WAYF.format(sp=sp))
         route.fulfill(status=404, body="not found")
 
     # ── Brightspace ───────────────────────────────────────────────────────────
@@ -397,6 +443,60 @@ class FakeUU:
             self.gitlab_keys.append(body)
             return _json(route, {"id": len(self.gitlab_keys), **body}, status=201)
         _json(route, {"message": "404 Not Found"}, status=404)
+
+    # ── edu.nl ────────────────────────────────────────────────────────────────
+    def _edunl(self, route, req, url) -> None:
+        path, query = url.path, parse_qs(url.query)
+        if path == "/mellon/postResponse":
+            self.edunl_logins += 1
+            return _redirect(route, f"{EDUNL}/manage/", cookie="mellon-cookie=m3ll0n; Path=/")
+        if not path.startswith("/manage/"):
+            return route.fulfill(status=404, body="not found")
+        if "mellon-cookie=" not in _cookies(req):
+            return _redirect(route, f"{SURFCONEXT}/authentication/idp/single-sign-on?SAMLRequest=x&sp=edunl")
+        form = {k: v[0] for k, v in parse_qs(req.post_data or "").items()} if req.method == "POST" else {}
+        if req.method == "POST":
+            self.edunl_posts.append({"path": path, **form})
+            if EDUNL_CSRF not in (form.get("short_url[_token]"), form.get("_token")):
+                return route.fulfill(status=400, body="The CSRF token is invalid.")
+
+        if (req.method, path) == ("POST", "/manage/"):
+            long_url = form.get("short_url[longUrl]", "")
+            if not long_url.startswith(("http://", "https://")) or "." not in (urlparse(long_url).hostname or ""):
+                return _html(route, EDUNL_LOGOUT + EDUNL_FORM.format(
+                    value=long_url, error=EDUNL_URL_ERROR, csrf=EDUNL_CSRF))
+            code = f"c{len(self.edunl_links) + 1:04d}"
+            self.edunl_links.insert(0, {"code": code, "url": long_url, "label": "", "clicks": 0,
+                                        "date": "2026-10-22"})
+            return _redirect(route, f"{EDUNL}/manage/url/{code}/show")
+
+        one = re.fullmatch(r"/manage/url/([^/]+)/(show|edit)", path)
+        if one:
+            link = next((x for x in self.edunl_links if x["code"] == one[1]), None)
+            if link is None:
+                return route.fulfill(status=404, body="not found")
+            if one[2] == "show":
+                return _html(route, EDUNL_LOGOUT + EDUNL_CREATED.format(
+                    short=f"{EDUNL}/{link['code']}", url=link["url"], code=link["code"], csrf=EDUNL_CSRF))
+            if req.method == "POST":
+                link["label"] = form.get("short_url[label]", "")
+                return _redirect(route, f"{EDUNL}/manage/?updated=1")
+
+        overview = re.fullmatch(r"/manage/(?:page/(\d+))?", path)
+        if overview and req.method == "GET":
+            n = int(overview[1] or 1)
+            term = query.get("filterValue", [""])[0].lower()
+            found = [x for x in self.edunl_links if term in x["url"].lower() or term in x["label"].lower()]
+            rows = "".join(EDUNL_ROW.format(short=f"{EDUNL}/{x['code']}", short_text=f"edu.nl/{x['code']}", **x)
+                           for x in found[(n - 1) * EDUNL_PER_PAGE:n * EDUNL_PER_PAGE])
+            more = len(found) > n * EDUNL_PER_PAGE
+            alert = ('<div class="messages"><div class="alert alert-success">The URL was updated.</div></div>'
+                     if "updated" in query else "")
+            nav = f'<a href="/manage/page/{n + 1}">{n + 1}</a>' if more else ""
+            return _html(route, EDUNL_LOGOUT + alert + EDUNL_FORM.format(value="", error="", csrf=EDUNL_CSRF)
+                         + f'<table><tbody data-test="links">{rows}</tbody></table>'
+                         + f'<div class="navigation">{nav}</div>')
+        route.fulfill(status=404, body="not found")
 
 
 def _by_hand(values: dict) -> str:
