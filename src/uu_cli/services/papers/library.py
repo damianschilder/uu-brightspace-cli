@@ -1,10 +1,12 @@
-"""An article through UU's library proxy, in a browser window where you download it yourself.
+"""An article through UU's library proxy, in a browser window on your screen.
 
 UU's library reaches publishers through an EZproxy at utrechtuniversity.idm.oclc.org: its
 login link logs you in with your Solis-id and then opens the article as a UU subscriber. The
-CLI only builds that link and opens it in a window with your UU session; finding the PDF and
-opening or downloading it is up to you, as on any other day. Every PDF you open or download
-there is saved, so one window works for every publisher without code per publisher.
+CLI builds that link and opens it in a window with your UU session. With `open`, finding the
+PDF and opening or downloading it is up to you, as on any other day; with `get`, the window
+opens the PDF the article page names in its citation_pdf_url tag (the one Google Scholar
+reads), and you take over when it can't. Every PDF opened or downloaded there is saved, so one
+window works for every publisher without code per publisher.
 """
 
 from __future__ import annotations
@@ -12,8 +14,11 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
-from playwright.sync_api import BrowserContext, Download, Error as PlaywrightError, Response
+from playwright.sync_api import (
+    BrowserContext, Download, Error as PlaywrightError, Page, Response,
+)
 
 from uu_cli import browser
 from uu_cli.services.papers.articles import doi_of, save_pdf
@@ -23,6 +28,15 @@ PROXY = "https://utrechtuniversity.idm.oclc.org"
 # How long the window stays open for you to find the PDF.
 WINDOW_TIMEOUT_S = 900
 
+# How long `get` waits for the PDF it opened before it asks you to open it.
+FETCH_WAIT_S = 30
+
+# The PDF an article page names for search engines, as an absolute address.
+CITATION_PDF = """() => {
+  const meta = document.querySelector('meta[name="citation_pdf_url"]')
+  return meta && meta.content ? new URL(meta.content, location.href).href : null
+}"""
+
 
 def proxy_url(article: str) -> str:
     """The proxy's login link for article; auth=uushibboleth is its "Universiteit Utrecht" choice
@@ -31,9 +45,10 @@ def proxy_url(article: str) -> str:
 
 
 def open_article(ctx: BrowserContext, article: str, out_dir: Path, doi: str | None,
-                 keep_open: bool = False) -> list[Path]:
+                 keep_open: bool = False, fetch: bool = False) -> list[Path]:
     """Open article through the proxy in a window with ctx's session; returns the PDFs saved.
 
+    fetch: once the article page is there, open the PDF it names in a tab of the window (`get`).
     A PDF is named after its own DOI when its address has one, else after the article's doi:
     a chapter page can also offer the whole book. The window closes once a PDF is saved (unless
     keep_open), when you close it, or after WINDOW_TIMEOUT_S. Its session goes back into ctx, so
@@ -44,6 +59,7 @@ def open_article(ctx: BrowserContext, article: str, out_dir: Path, doi: str | No
     window.on("page", lambda page: page.on("download", lambda d: found.append(d)))
     window.on("response", lambda r: found.append(r) if _is_pdf(r) else None)
     saved: list[Path] = []
+    fetched_at = 0.0  # when `get` opened the PDF; 0 while it hasn't
     try:
         page = window.new_page()
         page.goto(proxy_url(article), wait_until="commit", timeout=60_000)
@@ -64,6 +80,14 @@ def open_article(ctx: BrowserContext, article: str, out_dir: Path, doi: str | No
             pages = [p for p in window.pages if not p.is_closed()]
             if not pages:
                 break
+            if fetch and not fetched_at and (pdf := _citation_pdf(pages)):
+                print(f"[LIBRARY] Opening the article's PDF: {pdf.split('?')[0]}", file=sys.stderr)
+                _open_pdf(window, pdf)
+                fetched_at = time.monotonic()
+            elif fetch and fetched_at and not saved and time.monotonic() > fetched_at + FETCH_WAIT_S:
+                print("[LIBRARY] The PDF didn't come by itself: open or download it in the window.",
+                      file=sys.stderr)
+                fetch = False
             try:
                 pages[0].wait_for_timeout(250)
             except PlaywrightError:
@@ -81,6 +105,30 @@ def open_article(ctx: BrowserContext, article: str, out_dir: Path, doi: str | No
         except PlaywrightError:
             pass
     return saved
+
+
+def _citation_pdf(pages: list[Page]) -> str | None:
+    """The PDF address an open page names in its citation_pdf_url tag, if one does."""
+    for page in pages:
+        try:
+            pdf = page.evaluate(CITATION_PDF)
+        except PlaywrightError:
+            continue  # on its way to the next page
+        if pdf:
+            return pdf
+    return None
+
+
+def _open_pdf(window: BrowserContext, pdf: str) -> None:
+    """Open pdf in a new tab, through the proxy when the page named the publisher's own address."""
+    host = urlparse(pdf).hostname or ""
+    proxy = urlparse(PROXY).hostname
+    if host != proxy and not host.endswith(f".{proxy}"):
+        pdf = proxy_url(pdf)
+    try:
+        window.new_page().goto(pdf, wait_until="commit", timeout=60_000)
+    except PlaywrightError:
+        pass  # a download ends the navigation; the loop saves it, or asks you to take over
 
 
 def _is_pdf(response: Response) -> bool:

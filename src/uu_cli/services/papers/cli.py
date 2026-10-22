@@ -19,8 +19,17 @@ PAUSE_S = 1.0
 
 def cmd_open(args) -> int:
     """Open an article through UU's library in a window; you open or download the PDF there."""
+    return _in_window(args, fetch=False)
+
+
+def cmd_get(args) -> int:
+    """Open an article through UU's library in a window that opens the PDF itself."""
+    return _in_window(args, fetch=True)
+
+
+def _in_window(args, fetch: bool) -> int:
     if not auth.has_screen():
-        print("ERROR: `uu papers open` needs a screen to open its window on "
+        print(f"ERROR: `uu papers {args.cmd}` needs a screen to open its window on "
               "(DISPLAY or WAYLAND_DISPLAY is not set).", file=sys.stderr)
         return 1
     try:
@@ -29,14 +38,15 @@ def cmd_open(args) -> int:
         print(f"ERROR: {err}", file=sys.stderr)
         return 2
     out = Path(args.output)
-    print("[LIBRARY] Opening the article through UU's library. Log in there if UU asks, then "
-          f"open or download the PDF; it's saved to {out}/.", file=sys.stderr)
+    then = "the PDF opens by itself" if fetch else "open or download the PDF"
+    print(f"[LIBRARY] Opening the article through UU's library. Log in there if UU asks, then "
+          f"{then}; it's saved to {out}/.", file=sys.stderr)
 
     with sync_playwright() as pw:
         ctx = browser.launch(pw, args.session_dir)
         try:
             saved = library.open_article(ctx, url, out, articles.doi_of(args.article),
-                                         keep_open=args.keep_open)
+                                         keep_open=getattr(args, "keep_open", False), fetch=fetch)
         finally:
             browser.save_session(ctx, args.session_dir)
     if not saved:
@@ -79,7 +89,14 @@ def cmd_elsevier(args) -> int:
     return 1 if failed else 0
 
 
-COMMANDS = {"open": cmd_open, "elsevier": cmd_elsevier}
+COMMANDS = {"open": cmd_open, "get": cmd_get, "elsevier": cmd_elsevier}
+
+
+def _window_args(sp: argparse.ArgumentParser) -> None:
+    sp.add_argument("article", help="A DOI (10.1016/…) or the article's web address")
+    sp.add_argument("-o", "--output", default=".", help="Folder for the PDF (default: here)")
+    sp.add_argument("--session-dir", default=str(paths.SESSION_DIR),
+                    help="Browser profile, shared with the other services (one UU login)")
 
 
 def main(argv: list[str] | None = None, prog: str | None = None) -> None:
@@ -90,12 +107,13 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
 
     op = sub.add_parser("open", help="Open an article through UU's library in a browser window; "
                                      "the PDF you open or download there is saved")
-    op.add_argument("article", help="A DOI (10.1016/…) or the article's web address")
-    op.add_argument("-o", "--output", default=".", help="Folder for the PDF (default: here)")
+    _window_args(op)
     op.add_argument("--keep-open", action="store_true",
                     help="Keep the window open after the first PDF, until you close it")
-    op.add_argument("--session-dir", default=str(paths.SESSION_DIR),
-                    help="Browser profile, shared with the other services (one UU login)")
+
+    ge = sub.add_parser("get", help="Like open, but the window opens the article's PDF itself; "
+                                    "you only log in when UU asks")
+    _window_args(ge)
 
     el = sub.add_parser("elsevier", help="Download Elsevier articles through Elsevier's API "
                                          "(ELSEVIER_API_KEY; full text from UU's network)")

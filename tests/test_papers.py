@@ -107,14 +107,69 @@ def test_open_gives_up_without_a_pdf(window, fake_uu, state, monkeypatch, capsys
     assert len(window) == 1 and not window[0].browser.is_connected()
 
 
-def test_open_needs_a_screen(monkeypatch, capsys):
+@pytest.mark.parametrize("cmd", ["open", "get"])
+def test_the_window_needs_a_screen(cmd, monkeypatch, capsys):
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
 
-    code, _, err = run(papers, ["open", DOI], capsys)
+    code, _, err = run(papers, [cmd, DOI], capsys)
 
-    assert code == 1 and "needs a screen" in err
+    assert code == 1 and f"`uu papers {cmd}` needs a screen" in err
+
+
+# ── uu papers get: the window opens the PDF itself ────────────────────────────
+
+@pytest.mark.browser
+def test_get_opens_the_pdf_the_article_names_without_a_click(window, fake_uu, state, capsys):
+    fake_uu.clicks_pdf = False
+
+    code, out, err = run(papers, ["get", DOI, "-o", str(state / "papers")], capsys)
+
+    assert code == 0, err
+    assert (state / "papers" / PDF_NAME).read_bytes() == ARTICLE_PDF
+    assert f"Saved: {state / 'papers' / PDF_NAME}" in out
+    assert fake_uu.library_logins == 1 and len(fake_uu.codes) == 1  # you only logged in
+    assert len(window) == 1 and not window[0].browser.is_connected()
+
+
+@pytest.mark.browser
+def test_get_opens_a_publishers_own_pdf_address_through_the_proxy(window, fake_uu, state, capsys):
+    chapter = "10.1007/978-3-319-75553-3_9"
+    fake_uu.clicks_pdf = False
+    fake_uu.citation_pdf_url = f"https://link.springer.com/content/pdf/{chapter}.pdf"
+
+    code, _, err = run(papers, ["get", chapter, "-o", str(state)], capsys)
+
+    assert code == 0, err
+    assert (state / "10.1007_978-3-319-75553-3_9.pdf").read_bytes() == ARTICLE_PDF
+    assert fake_uu.library_links[-1] == f"auth=uushibboleth&url={fake_uu.citation_pdf_url}"
+    assert not any("springer.com" in url for url in fake_uu.elsewhere)  # never past the proxy
+
+
+@pytest.mark.browser
+def test_get_leaves_it_to_you_when_the_page_names_no_pdf(window, fake_uu, state, capsys):
+    fake_uu.citation_pdf_url = None
+
+    code, _, err = run(papers, ["get", DOI, "-o", str(state)], capsys)
+
+    assert code == 0, err  # you clicked "View PDF"
+    assert (state / PDF_NAME).exists()
+    assert "Opening the article's PDF" not in err
+
+
+@pytest.mark.browser
+def test_get_asks_you_to_take_over_when_the_pdf_does_not_come(window, fake_uu, state, monkeypatch,
+                                                               capsys):
+    fake_uu.clicks_pdf = False
+    fake_uu.citation_pdf_url = "/article/gone.pdf"
+    monkeypatch.setattr(library, "FETCH_WAIT_S", 0)
+    monkeypatch.setattr(library, "WINDOW_TIMEOUT_S", 3)
+
+    code, _, err = run(papers, ["get", DOI, "-o", str(state)], capsys)
+
+    assert code == 1 and "No PDF saved" in err
+    assert "didn't come by itself: open or download it in the window" in err
 
 
 # ── uu papers elsevier: Elsevier's API ────────────────────────────────────────

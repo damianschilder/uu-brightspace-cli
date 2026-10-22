@@ -8,8 +8,8 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
 - **[Konjoin](https://uu.konjoin.nl)** (`uu konjoin`): lists and searches research,
   thesis and internship projects, shows a project's details and exports them all to JSON.
 - **Journal articles** (`uu papers`): opens an article through UU's library in a browser
-  window and saves the PDF you open there, or downloads Elsevier articles through
-  Elsevier's API.
+  window and saves the PDF you, or the window itself, open there, or downloads Elsevier
+  articles through Elsevier's API.
 
 ```mermaid
 flowchart LR
@@ -183,6 +183,7 @@ contact details; add `--keep-contact-details` if you need them.
 ```sh
 uu papers open 10.1016/j.knosys.2025.113564          # Through UU's library; the PDF you open is saved
 uu papers open https://link.springer.com/article/… -o papers/
+uu papers get 10.1016/j.knosys.2025.113564           # The same window, which opens the PDF itself
 uu papers elsevier 10.1016/j.knosys.2025.113564      # Elsevier's API (needs ELSEVIER_API_KEY)
 ```
 
@@ -196,6 +197,33 @@ also offer the whole book. `--keep-open` keeps it
 open for more (supplementary material) until you close it. It works for every publisher
 UU subscribes to, and like `--auth browser` it needs a screen.
 
+`get` opens the same window, so you still see it and log in when UU asks, but then opens
+the PDF itself: the one the article page names in its `citation_pdf_url` tag, the tag
+Google Scholar reads, which most publishers set. It opens that in a tab of the same
+window, through the proxy when the address is the publisher's own, and saves it as
+`open` does. When a page names no PDF, or a publisher's checks keep the PDF from coming
+within half a minute, the window stays open and asks you to open it yourself. One
+article per run, always in a window on your screen: never a download in the background.
+
+#### With an AI coding agent
+
+An agent such as Claude Code can't fetch an article through the library for you on its
+own. Three things are in the way:
+
+- **Your login.** It doesn't need your session cookie: `uu` uses its own saved session,
+  the way `gh` uses its login. But that session is as good as your password for the
+  library until it expires, so an agent should never read it.
+- **The window.** `open` and `get` need a window on your screen. In Claude Code's sandbox
+  on Linux, Chromium can't open one: the sandbox blocks the Unix sockets Chromium needs
+  for its single-instance lock and the display, and it stops at `socket() failed:
+  Operation not permitted`. Headless Chromium, which the other commands use, does run.
+- **The network.** A sandbox lets through only the hosts on its list, and the library
+  proxy is usually not on it. Publishers also refuse an agent's own web fetches (403),
+  since those don't come from UU's network.
+
+So the agent gives you the command, with the folder it should save to. You run it, log
+in if UU asks, and the agent reads the PDF from that folder.
+
 `elsevier` uses Elsevier's Article Retrieval API, the route Elsevier allows for automated
 access; its website terms forbid scripts that download from ScienceDirect. Get a personal
 API key at [dev.elsevier.com](https://dev.elsevier.com/apikey/manage) and set
@@ -206,8 +234,9 @@ checks access first and says so when there is none.
 
 UU's licences allow scholarly and personal use, not systematically downloading large
 parts of the material ([conditions of use](https://www.uu.nl/en/university-library/searching-for-literature/conditions-of-use-electronic-journals-e-books-en-databases)),
-and publishers can cut off the whole university when they see it. Both commands fetch
-only the articles you name, and `elsevier` pauses between them.
+and publishers can cut off the whole university when they see it. All three commands
+fetch only the articles you name, `open` and `get` one per run in a window you see, and
+`elsevier` pauses between them.
 
 ## Docker
 

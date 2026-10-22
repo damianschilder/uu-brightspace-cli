@@ -128,7 +128,8 @@ PROJECTS = [
 PER_PAGE = 2
 
 # An article behind the library proxy; "View PDF" opens the PDF in a new tab, as ScienceDirect does.
-ARTICLE = '<h1>A fake article</h1><a id="pdf" href="{pdf}" target="_blank">View PDF</a>'
+ARTICLE = '{meta}<h1>A fake article</h1><a id="pdf" href="{pdf}" target="_blank">View PDF</a>'
+CITATION_PDF = '<meta name="citation_pdf_url" content="{url}">'
 ARTICLE_PDF = b"%PDF-1.7\n% fake article\n"
 
 # What Konjoin's real pages wait for before they count as loaded (seen 22-10-2026).
@@ -153,6 +154,8 @@ class FakeUU:
         self.library_logins = 0     # completed logins at the library proxy
         self.library_links: list[str] = []  # query strings of the proxy login links opened
         self.article_pdf = "/article/main.pdf"  # where the article's "View PDF" link points
+        self.citation_pdf_url: str | None = "/article/main.pdf"  # the page's tag for search engines
+        self.clicks_pdf = True      # you, at the window, click "View PDF" (when by_hand)
         self.elsewhere: list[str] = []  # requests for hosts this fake doesn't serve (aborted)
 
     def install(self, ctx, by_hand: bool = False) -> None:
@@ -277,6 +280,9 @@ class FakeUU:
         logged_in = "ezproxy=" in _cookies(req)
         if path == "/login":
             self.library_links.append(url.query)
+            target = urlparse(parse_qs(url.query).get("url", [""])[0])
+            if logged_in and target.path.endswith(".pdf"):  # a publisher's PDF, proxied
+                return _redirect(route, f"{LIBRARY}{target.path}")
             if logged_in:
                 return _redirect(route, f"{LIBRARY}/article")
             return _redirect(route, f"{IDP}/nidp/app/login?sp=library")
@@ -286,10 +292,12 @@ class FakeUU:
         if not logged_in:
             return route.fulfill(status=403, body="not logged in at the proxy")
         if path == "/article":
+            meta = CITATION_PDF.format(url=self.citation_pdf_url) if self.citation_pdf_url else ""
             # You, at the window: click "View PDF".
             you = "<script>setTimeout(() => document.getElementById('pdf').click(), 300)</script>"
-            return _html(route, ARTICLE.format(pdf=self.article_pdf) + (you if by_hand else ""))
-        if path == self.article_pdf:
+            clicks = by_hand and self.clicks_pdf
+            return _html(route, ARTICLE.format(meta=meta, pdf=self.article_pdf) + (you if clicks else ""))
+        if path == self.article_pdf or path.startswith("/content/pdf/"):  # SpringerLink's PDFs
             return route.fulfill(status=200, body=ARTICLE_PDF,
                                  headers={"Content-Type": "application/pdf"})
         route.fulfill(status=404, body="not found")
