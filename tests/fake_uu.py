@@ -1,11 +1,12 @@
-"""An offline stand-in for UU's Solis-id login, Brightspace, Konjoin and the library proxy, served
-through Playwright routing.
+"""An offline stand-in for UU's Solis-id login, Brightspace, Konjoin, the library proxy and UU's
+GitLab, served through Playwright routing.
 
 It models what the CLI relies on, not the real services: a NetIQ-style form with a one-time-code
 step and a single-sign-on session, SAML-style hops back that set a session cookie, a D2L token
 in localStorage, SURFconext's institution picker in front of Konjoin, the library proxy's login
-link in front of an article with a PDF, and the API endpoints the commands call. Every other
-request is aborted and redirects happen in the page, so nothing leaves the machine.
+link in front of an article with a PDF, GitLab's own Solis-ID sign-in with CSRF-checked API
+calls, and the API endpoints the commands call. Every other request is aborted and redirects
+happen in the page, so nothing leaves the machine.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ BRIGHTSPACE = "https://uu.brightspace.com"
 KONJOIN = "https://uu.konjoin.nl"
 SURFCONEXT = "https://engine.surfconext.nl"
 LIBRARY = "https://utrechtuniversity.idm.oclc.org"
+GITLAB = "https://git.science.uu.nl"
 IDP = "https://login.uu.nl"
 SOLISID = "1234567"
 PASSWORD = "correct horse"
@@ -132,6 +134,33 @@ ARTICLE = '{meta}<h1>A fake article</h1><a id="pdf" href="{pdf}" target="_blank"
 CITATION_PDF = '<meta name="citation_pdf_url" content="{url}">'
 ARTICLE_PDF = b"%PDF-1.7\n% fake article\n"
 
+# GitLab's sign-in page with its Solis-ID tab (LDAP), as served on 22-10-2026: GitLab's script
+# renders the password field into the placeholder after the page loads.
+GITLAB_SIGN_IN = """<head><meta name="csrf-token" content="{csrf}"></head>
+<div class="flash-container">{flash}</div>
+<form data-testid="new_ldap_user" action="/users/auth/ldapmain/callback" method="post">
+  <input type="hidden" name="authenticity_token" value="{csrf}">
+  <input id="ldapmain_username" name="username" type="text">
+  <input class="js-password" data-id="ldapmain_password" data-name="password">
+  <button data-testid="sign-in-button" type="submit">Sign in</button>
+</form>
+<script>
+  document.querySelector(".js-password").outerHTML =
+    '<input id="ldapmain_password" name="password" type="password">';
+</script>"""
+GITLAB_REFUSED = ('<div class="flash-alert">Could not authenticate you from Ldapmain because '
+                  f'"Invalid credentials for {SOLISID}".</div>')
+# The code step GitLab adds when you turned on its own two-factor login.
+GITLAB_TWO_FACTOR = """<form action="/users/sign_in" method="post">
+  <label for="user_otp_attempt">Verification code</label>
+  <input id="user_otp_attempt" name="user[otp_attempt]" type="text">
+</form>"""
+GITLAB_HOME = """<head><meta name="csrf-token" content="{csrf}"></head><h1>Projects</h1>
+<img src="https://secure.gravatar.com/avatar/0?s=32" alt="">"""
+# GitLab's CSRF token belongs to the session: a page loaded before the login carries the guest's.
+CSRF_GUEST, CSRF_SESSION = "csrf-guest", "csrf-session"
+GITLAB_USER = {"id": 7, "username": "student", "name": "Test Student"}
+
 # What Konjoin's real pages wait for before they count as loaded (seen 22-10-2026).
 THIRD_PARTY = """<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato">
 <script src="https://cdn.polyfill.io/v2/polyfill.min.js"></script>"""
@@ -157,6 +186,12 @@ class FakeUU:
         self.citation_pdf_url: str | None = "/article/main.pdf"  # the page's tag for search engines
         self.clicks_pdf = True      # you, at the window, click "View PDF" (when by_hand)
         self.elsewhere: list[str] = []  # requests for hosts this fake doesn't serve (aborted)
+        self.gitlab_logins = 0      # completed sign-ins at GitLab
+        self.gitlab_two_factor = False  # you turned on GitLab's own two-factor login
+        self.gitlab_api: list[str] = []  # "METHOD /path" of every API request GitLab received
+        self.gitlab_created: list[dict] = []  # what the CLI sent to create each project
+        self.gitlab_projects: list[dict] = []
+        self.gitlab_keys: list[dict] = []
 
     def install(self, ctx, by_hand: bool = False) -> None:
         """Serve the fake to ctx. by_hand: someone at this browser fills in UU's forms (--auth browser)."""
@@ -173,6 +208,7 @@ class FakeUU:
             KONJOIN: self._konjoin,
             SURFCONEXT: self._surfconext,
             LIBRARY: lambda *a: self._library(*a, by_hand=by_hand),
+            GITLAB: lambda *a: self._gitlab(*a, by_hand=by_hand),
         }.get(origin)
         if handler:
             handler(route, req, url)
@@ -301,6 +337,66 @@ class FakeUU:
             return route.fulfill(status=200, body=ARTICLE_PDF,
                                  headers={"Content-Type": "application/pdf"})
         route.fulfill(status=404, body="not found")
+
+    # ── GitLab (git.science.uu.nl) ────────────────────────────────────────────
+    def _gitlab(self, route, req, url, by_hand: bool = False) -> None:
+        path = url.path
+        logged_in = "_gitlab_session=in" in _cookies(req)
+        if path.startswith("/api/v4/"):
+            return self._gitlab_api(route, req, path.removeprefix("/api/v4"), logged_in)
+        if path == "/users/auth/ldapmain/callback" and req.method == "POST":
+            form = {k: v[0] for k, v in parse_qs(req.post_data or "").items()}
+            if (form.get("username"), form.get("password")) != (SOLISID, PASSWORD):
+                return _redirect(route, f"{GITLAB}/users/sign_in?failed=1")
+            if self.gitlab_two_factor:
+                return _html(route, GITLAB_TWO_FACTOR)
+            self.gitlab_logins += 1
+            return _redirect(route, f"{GITLAB}/", cookie="_gitlab_session=in; Path=/")
+        if path not in ("/", "/users/sign_in"):
+            return route.fulfill(status=404, body="not found")
+        if logged_in:
+            if path == "/users/sign_in":
+                return _redirect(route, f"{GITLAB}/")
+            return _html(route, GITLAB_HOME.format(csrf=CSRF_SESSION))
+        # A guest gets the sign-in page, at / too: GitLab's server-side redirect, in one step.
+        failed = "failed" in parse_qs(url.query)
+        page = GITLAB_SIGN_IN.format(csrf=CSRF_GUEST, flash=GITLAB_REFUSED if failed else "")
+        if by_hand and path == "/users/sign_in" and not failed:
+            page += _by_hand({"ldapmain_username": SOLISID, "ldapmain_password": PASSWORD})
+        _html(route, page)
+
+    def _gitlab_api(self, route, req, path, logged_in: bool) -> None:
+        self.gitlab_api.append(f"{req.method} {path}")
+        # A session cookie counts for a change only with the session's CSRF token.
+        verified = req.method in ("GET", "HEAD") or req.all_headers().get("x-csrf-token") == CSRF_SESSION
+        if not (logged_in and verified):
+            return _json(route, {"message": "401 Unauthorized"}, status=401)
+        body = json.loads(req.post_data or "null")
+        user = GITLAB_USER["username"]
+        if (req.method, path) == ("GET", "/user"):
+            return _json(route, GITLAB_USER)
+        if (req.method, path) == ("GET", "/projects"):
+            return _json(route, self.gitlab_projects)
+        if (req.method, path) == ("POST", "/projects"):
+            slug = body["name"].lower().replace(" ", "-")
+            if any(p["path"] == slug for p in self.gitlab_projects):
+                return _json(route, {"message": {"name": ["has already been taken"],
+                                                 "path": ["has already been taken"]}}, status=400)
+            self.gitlab_created.append(body)
+            project = {"id": len(self.gitlab_projects) + 1, "name": body["name"], "path": slug,
+                       "path_with_namespace": f"{user}/{slug}",
+                       "visibility": body.get("visibility", "private"),
+                       "web_url": f"{GITLAB}/{user}/{slug}",
+                       "ssh_url_to_repo": f"git@git.science.uu.nl:{user}/{slug}.git",
+                       "http_url_to_repo": f"{GITLAB}/{user}/{slug}.git"}
+            self.gitlab_projects.insert(0, project)
+            return _json(route, project, status=201)
+        if (req.method, path) == ("POST", "/user/keys"):
+            if any(k["key"] == body["key"] for k in self.gitlab_keys):
+                return _json(route, {"message": {"key": ["has already been taken"]}}, status=400)
+            self.gitlab_keys.append(body)
+            return _json(route, {"id": len(self.gitlab_keys), **body}, status=201)
+        _json(route, {"message": "404 Not Found"}, status=404)
 
 
 def _by_hand(values: dict) -> str:
