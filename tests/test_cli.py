@@ -43,7 +43,7 @@ def test_library_help_lists_every_command(state, service):
     result = cli("-m", "uu_cli", service, "--help", state=state)
 
     assert result.returncode == 0
-    for command in ["open", "get", "watch", "elsevier"]:
+    for command in ["open", "get", "elsevier"]:
         assert command in result.stdout
 
 

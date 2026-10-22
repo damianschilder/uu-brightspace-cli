@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
-import time
 from types import SimpleNamespace
 
 import pytest
@@ -109,7 +107,7 @@ def test_open_gives_up_without_a_pdf(window, fake_uu, state, monkeypatch, capsys
     assert len(window) == 1 and not window[0].browser.is_connected()
 
 
-@pytest.mark.parametrize("argv", [["open", DOI], ["get", DOI], ["watch"]])
+@pytest.mark.parametrize("argv", [["open", DOI], ["get", DOI]])
 def test_the_window_needs_a_screen(argv, monkeypatch, capsys):
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.delenv("DISPLAY", raising=False)
@@ -172,77 +170,6 @@ def test_get_asks_you_to_take_over_when_the_pdf_does_not_come(window, fake_uu, s
 
     assert code == 1 and "No PDF saved" in err
     assert "didn't come by itself: open or download it in the window" in err
-
-
-# ── uu library watch: get, for every DOI an agent adds to a list ───────────────
-
-CHAPTER = "10.1007/978-3-319-75553-3_9"
-
-
-@pytest.fixture
-def wanted(state, monkeypatch):
-    """Write the watch list in state, as written long enough ago for watch to read it."""
-    monkeypatch.setattr("uu_cli.services.library.cli.WATCH_POLL_S", 0.05)
-    monkeypatch.setattr("uu_cli.services.library.cli.WATCH_PAUSE_S", 0)
-
-    def write(*lines: str):
-        path = state / "wanted.txt"
-        path.write_text("".join(f"{line}\n" for line in lines))
-        os.utime(path, (time.time() - 5, time.time() - 5))
-    return write
-
-
-@pytest.mark.browser
-def test_watch_fetches_what_is_added_to_its_list_and_logs_it(window, fake_uu, state, wanted, capsys):
-    fake_uu.clicks_pdf = False
-    wanted("# for chapter 2", "see Thimm's paper", f"https://doi.org/{DOI}")
-
-    code, _, err = run(library, ["watch", "-o", str(state), "--max", "1"], capsys)
-
-    assert code == 0, err
-    assert (state / PDF_NAME).read_bytes() == ARTICLE_PDF
-    assert (state / "watch.log").read_text() == (
-        f"see Thimm's paper\tnot a DOI\n{DOI}\t{(state / PDF_NAME).resolve()}\n")
-    assert len(window) == 1 and not window[0].browser.is_connected()
-    assert "the most for one run" in err
-
-
-@pytest.mark.browser
-def test_watch_skips_what_its_log_already_has(window, fake_uu, state, wanted, capsys):
-    fake_uu.clicks_pdf = False
-    (state / "watch.log").write_text(f"{DOI}\tno PDF\n")
-    wanted(DOI.upper(), CHAPTER)
-
-    code, _, err = run(library, ["watch", "-o", str(state), "--max", "1"], capsys)
-
-    assert code == 0, err
-    assert fake_uu.library_links == [f"auth=uushibboleth&url=https://doi.org/{CHAPTER}"]
-    assert (state / "watch.log").read_text().splitlines()[-1].startswith(f"{CHAPTER}\t")
-
-
-@pytest.mark.browser
-def test_watch_opens_only_a_dois_own_link(window, fake_uu, state, wanted, capsys):
-    fake_uu.clicks_pdf = False
-    wanted(f"https://elsewhere.example/{DOI}?go=1")
-
-    code, _, err = run(library, ["watch", "-o", str(state), "--max", "1"], capsys)
-
-    assert code == 0, err
-    assert fake_uu.library_links == [f"auth=uushibboleth&url=https://doi.org/{DOI}"]
-    assert not any("elsewhere.example" in url for url in fake_uu.elsewhere)
-
-
-@pytest.mark.browser
-def test_watch_logs_a_window_without_a_pdf(window, fake_uu, state, wanted, monkeypatch, capsys):
-    fake_uu.clicks_pdf = False
-    fake_uu.citation_pdf_url = None
-    monkeypatch.setattr(proxy, "WINDOW_TIMEOUT_S", 1)
-    wanted(DOI)
-
-    code, _, err = run(library, ["watch", "-o", str(state), "--max", "1"], capsys)
-
-    assert code == 0, err
-    assert (state / "watch.log").read_text() == f"{DOI}\tno PDF\n"
 
 
 # ── uu library elsevier: Elsevier's API ────────────────────────────────────────
