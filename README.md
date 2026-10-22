@@ -7,6 +7,9 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
   lists courses, assignments, deadlines, grades and announcements.
 - **[Konjoin](https://uu.konjoin.nl)** (`uu konjoin`): lists and searches research,
   thesis and internship projects, shows a project's details and exports them all to JSON.
+- **Journal articles** (`uu papers`): opens an article through UU's library in a browser
+  window and saves the PDF you, or the window itself, open there, or downloads Elsevier
+  articles through Elsevier's API.
 
 ```mermaid
 flowchart LR
@@ -15,6 +18,7 @@ flowchart LR
     window["You log in yourself in a browser window,<br/>with the code from your authenticator app<br/>--auth browser"] --> cli
     cli["uu-brightspace-cli<br/>one UU login, one shared session"] --> brightspace["Brightspace<br/>uu brightspace …"]
     cli --> konjoin["Konjoin<br/>uu konjoin …"]
+    cli --> papers["Articles through UU's library<br/>uu papers …"]
 ```
 
 ## Features
@@ -35,7 +39,7 @@ flowchart LR
   window (`--auth browser`) shows UU's own login page, so push should work there, but it
   hasn't been tried yet.
 - **UU only.** The login flow is written for UU's Solis-id login page.
-- **Can break** if UU, D2L, SURFconext or Konjoin change their pages.
+- **Can break** if UU, D2L, SURFconext, Konjoin or UU's library proxy change their pages.
 
 ## Install
 
@@ -174,6 +178,83 @@ Konjoin shows every logged-in user each person's email address and organisation 
 JSON output (`--json`, `export`) leaves both out, so an export isn't a list of everyone's
 contact details; add `--keep-contact-details` if you need them.
 
+### Articles
+
+```sh
+uu papers open 10.1016/j.knosys.2025.113564          # Through UU's library; the PDF you open is saved
+uu papers open https://link.springer.com/article/… -o papers/
+uu papers get 10.1016/j.knosys.2025.113564           # The same window, which opens the PDF itself
+uu papers watch -o papers/                           # get, for each DOI an AI agent adds to papers/wanted.txt
+uu papers elsevier 10.1016/j.knosys.2025.113564      # Elsevier's API (needs ELSEVIER_API_KEY)
+```
+
+`open` takes a DOI or the article's web address, turns it into a link through UU's
+library proxy (`utrechtuniversity.idm.oclc.org`, the same one the library's own links
+use) and opens that in a browser window with your UU session, so while UU's session
+lasts there is no login. Find the PDF as you always would: the first PDF you open or
+download is saved, named after its DOI, and the window closes. When the PDF's address
+has a DOI of its own, that one names the file and the CLI says so: a chapter page can
+also offer the whole book. `--keep-open` keeps it
+open for more (supplementary material) until you close it. It works for every publisher
+UU subscribes to, and like `--auth browser` it needs a screen.
+
+`get` opens the same window, so you still see it and log in when UU asks, but then opens
+the PDF itself: the one the article page names in its `citation_pdf_url` tag, the tag
+Google Scholar reads, which most publishers set. It opens that in a tab of the same
+window, through the proxy when the address is the publisher's own, and saves it as
+`open` does. When a page names no PDF, or a publisher's checks keep the PDF from coming
+within half a minute, the window stays open and asks you to open it yourself. One
+article per run, always in a window on your screen: never a download in the background.
+
+#### With an AI coding agent
+
+An agent such as Claude Code can't fetch an article through the library for you on its
+own. Three things are in the way:
+
+- **Your login.** It doesn't need your session cookie: `uu` uses its own saved session,
+  the way `gh` uses its login. But that session is as good as your password for the
+  library until it expires, so an agent should never read it.
+- **The window.** `open` and `get` need a window on your screen. In Claude Code's sandbox
+  on Linux, Chromium can't open one: the sandbox blocks the Unix sockets Chromium needs
+  for its single-instance lock and the display, and it stops at `socket() failed:
+  Operation not permitted`. Headless Chromium, which the other commands use, does run.
+- **The network.** A sandbox lets through only the hosts on its list, and the library
+  proxy is usually not on it. Publishers also refuse an agent's own web fetches (403),
+  since those don't come from UU's network.
+
+The way around all three is `watch`, which you start in your own terminal, outside the
+agent's sandbox, and leave running:
+
+```sh
+uu papers watch -o ~/thesis/literature/papers
+```
+
+The agent adds DOIs to `wanted.txt` in that folder, one per line (`#` starts a comment),
+and waits for their line in `watch.log`: the DOI, a tab, then the saved file, or `no PDF`
+when the window closed without one. For each new DOI, `watch` does what `get` does: a
+window on your screen, where you log in if UU asks. It takes only DOIs from the list and
+opens only their doi.org links, so nothing an agent writes there can run or open another
+site. It fetches one article at a time, ten seconds apart, and stops after 25 (`--max`),
+so a list that keeps growing can't turn into systematic downloading. A DOI already in
+`watch.log` is skipped, also after a restart; to try one again, use `uu papers get`.
+
+Without `watch`, the agent gives you the command and the folder to save to, and reads
+the PDF from that folder once you've run it.
+
+`elsevier` uses Elsevier's Article Retrieval API, the route Elsevier allows for automated
+access; its website terms forbid scripts that download from ScienceDirect. Get a personal
+API key at [dev.elsevier.com](https://dev.elsevier.com/apikey/manage) and set
+`ELSEVIER_API_KEY`. The key alone grants nothing: Elsevier gives full text when it sees
+the request as UU's, from UU's network (on campus or eduroam). Elsewhere it needs an
+institutional token (`ELSEVIER_INSTTOKEN`), which only the library can request. The CLI
+checks access first and says so when there is none.
+
+UU's licences allow scholarly and personal use, not systematically downloading large
+parts of the material ([conditions of use](https://www.uu.nl/en/university-library/searching-for-literature/conditions-of-use-electronic-journals-e-books-en-databases)),
+and publishers can cut off the whole university when they see it. All three commands
+fetch only the articles you name, `open` and `get` one per run in a window you see, and
+`elsevier` pauses between them.
+
 ## Docker
 
 ```sh
@@ -203,9 +284,11 @@ src/uu_cli/
   services/
     brightspace/       api.py (token, /d2l/api), commands.py, sync.py, sheets.py, cli.py
     konjoin/           api.py (/api/project), commands.py, cli.py
+    papers/            library.py (the proxy, in a window), elsevier.py (the API),
+                       articles.py (DOIs, saved PDFs), cli.py
 brightspace-cli.py     the old entry point, kept for existing scripts and the Docker image
 tests/                 pytest suite; fake_uu.py is an offline stand-in for UU's login,
-                       SURFconext, Brightspace and Konjoin
+                       SURFconext, Brightspace, Konjoin and the library proxy
 ```
 
 A new platform is a package under `services/` with a `cli.py` exposing `main(argv, prog)`,
@@ -223,8 +306,8 @@ Chromium against `tests/fake_uu.py` and are skipped when Chromium is not install
 
 ## Disclaimer
 
-Unofficial tool, not affiliated with or endorsed by Utrecht University, D2L, SURF or
-Konjoin.
+Unofficial tool, not affiliated with or endorsed by Utrecht University, D2L, SURF,
+Konjoin, OCLC or Elsevier.
 Provided as is, without warranty. Use at your own risk.
 
 You are responsible for using it in line with your institution's regulations,

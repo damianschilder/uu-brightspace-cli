@@ -12,6 +12,7 @@ from uu_cli import __version__
 SERVICES = {
     "brightspace": "uu_cli.services.brightspace.cli",
     "konjoin": "uu_cli.services.konjoin.cli",
+    "papers": "uu_cli.services.papers.cli",
 }
 
 
