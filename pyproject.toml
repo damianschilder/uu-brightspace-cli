@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "uu-cli"
 version = "0.1.0"
-description = "Headless command-line access to Utrecht University platforms, built on Playwright"
+description = "Headless command-line access to Utrecht University platforms (Brightspace, Konjoin), built on Playwright"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

@@ -11,6 +11,7 @@ from uu_cli import __version__
 # Service name -> module whose main(argv, prog) runs that service's commands.
 SERVICES = {
     "brightspace": "uu_cli.services.brightspace.cli",
+    "konjoin": "uu_cli.services.konjoin.cli",
 }
 
 
