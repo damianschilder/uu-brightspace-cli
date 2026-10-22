@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
   <title id="title">UU CLI</title>
-  <desc id="desc">Utrecht University platforms from the terminal: Brightspace, Konjoin, journal articles, the Science GitLab, and SURF's edu.nl short links.</desc>
+  <desc id="desc">Utrecht University platforms from the terminal: Brightspace, Konjoin, journal articles, the Science GitLab, and SURF's edu.nl short links and SURFfilesender.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#16181f"/>
@@ -43,6 +43,8 @@
       <text x="453" y="272" text-anchor="middle" fill="#f5c542">GitLab</text>
       <rect x="66" y="294" width="84" height="34" rx="17" fill="#f5b301" fill-opacity="0.12" stroke="#f5b301" stroke-opacity="0.5"/>
       <text x="108" y="316" text-anchor="middle" fill="#f5c542">edu.nl</text>
+      <rect x="162" y="294" width="150" height="34" rx="17" fill="#f5b301" fill-opacity="0.12" stroke="#f5b301" stroke-opacity="0.5"/>
+      <text x="237" y="316" text-anchor="middle" fill="#f5c542">SURFfilesender</text>
     </g>
     <text x="66" y="356" font-size="14" fill="#71717a">One Solis-id login · unofficial, not affiliated with Utrecht University</text>
   </g>
