@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="470" viewBox="0 0 1200 470" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
   <title id="title">How uu logs in</title>
-  <desc id="desc">Three ways through UU's one-time-code step (--auth prompt, totp-secret or browser) lead to one UU session, which Brightspace, Konjoin and Library all share.</desc>
+  <desc id="desc">Three ways through UU's one-time-code step (--auth prompt, totp-secret or browser) lead to one UU session, which Brightspace, Konjoin and Library all share. GitLab has its own sign-in: your Solis-id and password, without a code.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#16181f"/>
@@ -16,21 +16,21 @@
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0L10 5L0 10z" fill="#f5b301" fill-opacity="0.7"/>
     </marker>
-    <clipPath id="card"><rect width="1200" height="470" rx="20"/></clipPath>
+    <clipPath id="card"><rect width="1200" height="640" rx="20"/></clipPath>
   </defs>
 
   <g clip-path="url(#card)">
-    <rect width="1200" height="470" fill="url(#bg)"/>
-    <rect width="1200" height="470" fill="url(#dots)"/>
+    <rect width="1200" height="640" fill="url(#bg)"/>
+    <rect width="1200" height="640" fill="url(#dots)"/>
     <rect width="1200" height="470" fill="url(#glow)"/>
   </g>
-  <rect x="0.5" y="0.5" width="1199" height="469" rx="19.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+  <rect x="0.5" y="0.5" width="1199" height="639" rx="19.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
 
   <!-- Column headings -->
   <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" letter-spacing="1.5" fill="#a1a1aa">
     <text x="40" y="52">1 · THE CODE STEP</text>
     <text x="600" y="52" text-anchor="middle">2 · ONE UU LOGIN</text>
-    <text x="830" y="52">3 · EVERY PLATFORM</text>
+    <text x="830" y="52">3 · THE PLATFORMS</text>
   </g>
 
   <!-- Arrows: routes -> login -> platforms -->
@@ -104,5 +104,34 @@
     </g>
     <text x="830" y="420" font-size="13.5" fill="#a1a1aa">Logged in to one, logged in to all:</text>
     <text x="830" y="440" font-size="13.5" fill="#a1a1aa">no second code while the session lasts.</text>
+  </g>
+
+  <!-- Below: GitLab, which has its own sign-in -->
+  <line x1="40" y1="472" x2="1160" y2="472" stroke="#ffffff" stroke-opacity="0.1" stroke-dasharray="4 6"/>
+  <text x="40" y="508" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" letter-spacing="1.5" fill="#a1a1aa">4 · GITLAB: ITS OWN SIGN-IN</text>
+  <g fill="none" stroke="#a1a1aa" stroke-opacity="0.45" stroke-width="2" marker-end="url(#arrow)">
+    <path d="M370 570 L466 570"/>
+    <path d="M734 570 L826 570"/>
+  </g>
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+    <g transform="translate(40 524)">
+      <rect width="330" height="92" rx="12" fill="#1a1c23" stroke="#2a2d36"/>
+      <text x="20" y="30" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14" font-weight="600" fill="#f5b301">any --auth</text>
+      <text x="20" y="56" font-size="17" font-weight="600" fill="#f4f4f5">Your Solis-id and password</text>
+      <text x="20" y="77" font-size="13.5" fill="#a1a1aa">No code · browser: you sign in in a window</text>
+    </g>
+    <g text-anchor="middle">
+      <rect x="470" y="524" width="260" height="92" rx="16" fill="#1a1c23" stroke="#a1a1aa" stroke-opacity="0.45" stroke-width="1.5"/>
+      <text x="600" y="556" font-size="20" font-weight="700" fill="#f4f4f5">GitLab sign-in</text>
+      <text x="600" y="580" font-size="14" fill="#d4d4d8">Its Solis-ID tab · no code</text>
+      <text x="600" y="603" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12" fill="#71717a">kept in cookies.json too</text>
+    </g>
+    <g transform="translate(830 524)">
+      <rect width="330" height="92" rx="12" fill="#1a1c23" stroke="#2a2d36"/>
+      <text x="20" y="34" font-size="18" font-weight="700" fill="#f4f4f5">GitLab</text>
+      <text x="310" y="34" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13" fill="#f5b301">uu gitlab</text>
+      <text x="20" y="64" font-size="13.5" fill="#a1a1aa">The Science GitLab: projects,</text>
+      <text x="20" y="82" font-size="13.5" fill="#a1a1aa">empty private repos, SSH keys</text>
+    </g>
   </g>
 </svg>
