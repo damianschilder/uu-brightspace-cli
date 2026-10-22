@@ -184,6 +184,7 @@ contact details; add `--keep-contact-details` if you need them.
 uu papers open 10.1016/j.knosys.2025.113564          # Through UU's library; the PDF you open is saved
 uu papers open https://link.springer.com/article/… -o papers/
 uu papers get 10.1016/j.knosys.2025.113564           # The same window, which opens the PDF itself
+uu papers watch -o papers/                           # get, for each DOI an AI agent adds to papers/wanted.txt
 uu papers elsevier 10.1016/j.knosys.2025.113564      # Elsevier's API (needs ELSEVIER_API_KEY)
 ```
 
@@ -221,8 +222,24 @@ own. Three things are in the way:
   proxy is usually not on it. Publishers also refuse an agent's own web fetches (403),
   since those don't come from UU's network.
 
-So the agent gives you the command, with the folder it should save to. You run it, log
-in if UU asks, and the agent reads the PDF from that folder.
+The way around all three is `watch`, which you start in your own terminal, outside the
+agent's sandbox, and leave running:
+
+```sh
+uu papers watch -o ~/thesis/literature/papers
+```
+
+The agent adds DOIs to `wanted.txt` in that folder, one per line (`#` starts a comment),
+and waits for their line in `watch.log`: the DOI, a tab, then the saved file, or `no PDF`
+when the window closed without one. For each new DOI, `watch` does what `get` does: a
+window on your screen, where you log in if UU asks. It takes only DOIs from the list and
+opens only their doi.org links, so nothing an agent writes there can run or open another
+site. It fetches one article at a time, ten seconds apart, and stops after 25 (`--max`),
+so a list that keeps growing can't turn into systematic downloading. A DOI already in
+`watch.log` is skipped, also after a restart; to try one again, use `uu papers get`.
+
+Without `watch`, the agent gives you the command and the folder to save to, and reads
+the PDF from that folder once you've run it.
 
 `elsevier` uses Elsevier's Article Retrieval API, the route Elsevier allows for automated
 access; its website terms forbid scripts that download from ScienceDirect. Get a personal
