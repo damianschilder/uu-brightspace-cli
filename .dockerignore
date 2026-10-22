@@ -13,3 +13,5 @@ brightspace_sync/
 output/
 Dockerfile
 .dockerignore
+.venv/
+tests/
