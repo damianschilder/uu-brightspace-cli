@@ -1,0 +1,76 @@
+"""edu.nl commands: login, shorten, links."""
+
+from __future__ import annotations
+
+import json
+import sys
+
+from playwright.sync_api import BrowserContext
+
+from uu_cli import auth
+from uu_cli.login import log_in, single_sign_on
+from uu_cli.services.edunl.api import MANAGE_URL, EdunlError, NotLoggedIn, links, logged_in, set_label, shorten
+
+
+def ensure_login(ctx: BrowserContext, args) -> bool:
+    """Log in to edu.nl unless already in; an existing UU session needs no code."""
+    if logged_in(ctx):
+        return True
+    print("[AUTH] Logging in to edu.nl...", file=sys.stderr)
+    if single_sign_on(ctx, MANAGE_URL) and logged_in(ctx):
+        print("[AUTH] ✓ Logged in with your existing UU session.", file=sys.stderr)
+        return True
+    if not auth.ready_to_login(args):
+        print(f"ERROR: Cannot log in: {auth.CANNOT_LOGIN}.", file=sys.stderr)
+        return False
+    log_in(ctx, MANAGE_URL, args, name="edu.nl")
+    return logged_in(ctx)
+
+
+def cmd_login(ctx: BrowserContext, args) -> int:
+    if not ensure_login(ctx, args):
+        return 1
+    print("Logged in to edu.nl.", file=sys.stderr)
+    return 0
+
+
+def cmd_shorten(ctx: BrowserContext, args) -> int:
+    """Make a short link; prints only the link on stdout, so a script can take it."""
+    if not args.url.lower().startswith(("http://", "https://")):
+        print(f"ERROR: Not a web address: {args.url} (it starts with http:// or https://).",
+              file=sys.stderr)
+        return 2
+    if not ensure_login(ctx, args):
+        return 1
+    try:
+        short, page = shorten(ctx, args.url)
+        print(short)
+        if args.label:
+            set_label(page, args.label)
+            print(f"[EDU.NL] Label: {args.label}", file=sys.stderr)
+    except EdunlError as err:
+        print(f"ERROR: edu.nl: {err}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_links(ctx: BrowserContext, args) -> int:
+    """Your links, newest first, one page of the overview at a time."""
+    try:
+        rows, more = links(ctx, args.page, args.search)
+    except NotLoggedIn:
+        if not ensure_login(ctx, args):
+            return 1
+        rows, more = links(ctx, args.page, args.search)
+    if args.json:
+        print(json.dumps(rows, indent=2, ensure_ascii=False))
+        return 0
+    if not rows:
+        print("No links found.")
+        return 0
+    for r in rows:
+        label = f"  [{r['label']}]" if r["label"] else ""
+        print(f"{r['short']:<24} {r['date']:<10} {r['clicks']:>5} clicks  {r['url']}{label}")
+    if more:
+        print(f"\nMore on page {args.page + 1} (--page {args.page + 1}).")
+    return 0
