@@ -44,6 +44,28 @@ def test_the_proxy_link_picks_uu_and_carries_the_article():
         f"https://utrechtuniversity.idm.oclc.org/login?auth=uushibboleth&url=https://doi.org/{DOI}")
 
 
+def test_link_prints_the_library_link_without_a_screen(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    springer = "https://link.springer.com/article/10.1007/s10462-023-10512-3"
+
+    code, out, err = run(library, ["link", DOI, springer], capsys)
+
+    assert code == 0 and not err
+    assert out.splitlines() == [
+        f"https://utrechtuniversity.idm.oclc.org/login?auth=uushibboleth&url=https://doi.org/{DOI}",
+        f"https://utrechtuniversity.idm.oclc.org/login?auth=uushibboleth&url={springer}",
+    ]
+
+
+def test_link_says_which_one_is_not_an_article(capsys):
+    code, out, err = run(library, ["link", DOI, "not-a-doi"], capsys)
+
+    assert code == 2 and "Not a DOI or a web address: not-a-doi" in err
+    assert len(out.splitlines()) == 1  # the good one is still printed
+
+
 def test_the_same_pdf_twice_is_one_file(tmp_path):
     first = articles.save_pdf(tmp_path, b"%PDF one", DOI)
     assert articles.save_pdf(tmp_path, b"%PDF one", DOI) == first

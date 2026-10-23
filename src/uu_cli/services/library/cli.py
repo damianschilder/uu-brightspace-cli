@@ -36,6 +36,22 @@ def cmd_get(args) -> int:
     return _one_article(args, fetch=True)
 
 
+def cmd_link(args) -> int:
+    """Print each article's link through UU's library, to open in your own browser.
+
+    No window and no login here: the browser you open it in logs in when UU asks, so this also
+    works where a window can't open, such as over SSH.
+    """
+    failed = 0
+    for ref in args.articles:
+        try:
+            print(proxy.proxy_url(articles.article_url(ref)))
+        except ValueError as err:
+            print(f"ERROR: {err}", file=sys.stderr)
+            failed += 1
+    return 2 if failed else 0
+
+
 def _one_article(args, fetch: bool) -> int:
     if not _has_screen(args.cmd):
         return 1
@@ -174,7 +190,8 @@ def cmd_elsevier(args) -> int:
     return 1 if failed else 0
 
 
-COMMANDS = {"open": cmd_open, "get": cmd_get, "watch": cmd_watch, "elsevier": cmd_elsevier}
+COMMANDS = {"open": cmd_open, "get": cmd_get, "link": cmd_link, "watch": cmd_watch,
+            "elsevier": cmd_elsevier}
 
 
 def _window_args(sp: argparse.ArgumentParser) -> None:
@@ -199,6 +216,10 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
     ge = sub.add_parser("get", help="Like open, but the window opens the article's PDF itself; "
                                     "you only log in when UU asks")
     _window_args(ge)
+
+    li = sub.add_parser("link", help="Print the link through UU's library for each article, to "
+                                     "open in your own browser; no window, no login here")
+    li.add_argument("articles", nargs="+", help="DOIs (10.1016/…) or the articles' web addresses")
 
     wa = sub.add_parser("watch", help=f"Fetch, as get does, every DOI added to {WANTED} in the "
                                       "output folder, for an AI agent that can't open a window "
