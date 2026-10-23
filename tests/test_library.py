@@ -247,7 +247,36 @@ def test_watch_fetches_what_is_added_to_its_list_and_logs_it(window, fake_uu, st
     assert (state / "watch.log").read_text() == (
         f"see Thimm's paper\tnot a DOI\n{DOI}\t{(state / PDF_NAME).resolve()}\n")
     assert len(window) == 1 and not window[0].browser.is_connected()
-    assert "the most for one run" in err
+    assert "[WATCH] 1/2 see Thimm's paper: not a DOI" in err
+    assert f"[WATCH] 2/2 {DOI}" in err
+    assert f"[WATCH] Done: 1 of 2 with a PDF; {state / 'watch.log'} has each result.\n" in err
+    assert "the most for one run" not in err  # nothing was left over
+
+
+@pytest.mark.browser
+def test_watch_says_when_max_leaves_some_for_the_next_run(window, fake_uu, state, wanted, capsys):
+    fake_uu.clicks_pdf = False
+    wanted(DOI, CHAPTER)
+
+    code, _, err = run(library, ["watch", "-o", str(state), "--max", "1"], capsys)
+
+    assert code == 0, err
+    assert f"[WATCH] 1/2 {DOI}" in err
+    assert "the most for one run (--max): start it again for more" in err
+    assert "Done" not in err
+
+
+@pytest.mark.browser
+def test_watch_shows_a_list_line_without_its_control_characters(window, fake_uu, state, wanted,
+                                                                capsys):
+    wanted("look up \x1b[31mthis\x1b[0m one", DOI)
+    fake_uu.clicks_pdf = False
+
+    code, _, err = run(library, ["watch", "-o", str(state), "--max", "1"], capsys)
+
+    assert code == 0, err
+    assert "[WATCH] 1/2 look up ?[31mthis?[0m one: not a DOI" in err
+    assert "\x1b" not in err
 
 
 @pytest.mark.browser

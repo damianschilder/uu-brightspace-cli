@@ -65,6 +65,9 @@ def cmd_watch(args) -> int:
     <files>" names what was downloaded in the window that isn't a PDF. Only DOIs are
     taken from the list, and only their doi.org links are opened, so nothing written there
     can run or open another site.
+
+    Each entry it takes says how far along the list it is ("2/5"), and once the list is
+    through it says "Done", with how many came with a PDF, and keeps waiting for more.
     """
     if not _has_screen(args.cmd):
         return 1
@@ -75,23 +78,36 @@ def cmd_watch(args) -> int:
     print(f"[WATCH] Waiting for DOIs in {wanted}, one per line; results go to {log}. "
           "Ctrl+C stops.", file=sys.stderr)
     fetched, last = 0, 0.0
+    taken, with_pdf, reported = 0, 0, 0  # this run: entries taken, how many got a PDF, said Done at
     try:
-        while fetched < args.max:
-            todo = [ref for ref in _lines(wanted) if _key(ref) not in done] if _settled(wanted) else []
+        while True:
+            settled = _settled(wanted)
+            todo = [ref for ref in _lines(wanted) if _key(ref) not in done] if settled else []
+            if settled and not todo and taken > reported:
+                more = "" if fetched >= args.max else " Waiting for more DOIs; Ctrl+C stops."
+                print(f"[WATCH] Done: {with_pdf} of {taken} with a PDF; {log} has each result.{more}",
+                      file=sys.stderr)
+                reported = taken
+            if fetched >= args.max:
+                break
             if not todo:
                 time.sleep(WATCH_POLL_S)
                 continue
             ref = todo[0]
             done.add(_key(ref))
+            step = f"{taken + 1}/{taken + len(todo)}"
+            taken += 1
             doi = articles.doi_of(ref)
             if not doi:
+                print(f"[WATCH] {step} {_shown(ref)}: not a DOI", file=sys.stderr)
                 result = "not a DOI"
             else:
                 time.sleep(max(0.0, last + WATCH_PAUSE_S - time.monotonic()))
-                print(f"[WATCH] {doi}", file=sys.stderr)
+                print(f"[WATCH] {step} {doi}", file=sys.stderr)
                 saved, others = _in_window(articles.article_url(doi), doi, out, args.session_dir,
                                            fetch=True)
                 fetched, last = fetched + 1, time.monotonic()
+                with_pdf += bool(saved)
                 result = str(saved[0].resolve()) if saved else "no PDF"
                 if others and not saved:
                     result += "; kept " + ", ".join(str(p.resolve()) for p in others)
@@ -100,9 +116,16 @@ def cmd_watch(args) -> int:
     except KeyboardInterrupt:
         print("[WATCH] Stopped.", file=sys.stderr)
         return 0
-    print(f"[WATCH] Fetched {fetched} articles, the most for one run (--max): "
-          "start it again for more.", file=sys.stderr)
+    if any(_key(ref) not in done for ref in _lines(wanted)):
+        print(f"[WATCH] Fetched {fetched} articles, the most for one run (--max): "
+              "start it again for more.", file=sys.stderr)
     return 0
+
+
+def _shown(ref: str) -> str:
+    """A list entry as the terminal may show it: printable characters only, so a line in the
+    list can't send the terminal escape codes."""
+    return "".join(c if c.isprintable() else "?" for c in ref)[:100]
 
 
 def _key(ref: str) -> str:

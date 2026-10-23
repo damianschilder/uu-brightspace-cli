@@ -226,7 +226,9 @@ starts a comment): by hand, from a script, or pasted from a reference list. For 
 DOI, `watch` does what `get` does: a window on your screen, where you log in if UU asks,
 and the PDF saved in the folder. `watch.log` gets a line per DOI: the DOI, a tab, then the
 saved file, or `no PDF` when the window closed without one (`no PDF; kept <file>` when
-what you downloaded there wasn't a PDF).
+what you downloaded there wasn't a PDF). In the terminal, each DOI shows how far along the
+list it is (`[WATCH] 2/5 10.1016/…`), and once the list is through, `[WATCH] Done` says how
+many came with a PDF; then it waits for more.
 
 It takes only DOIs from the list and opens only their doi.org links, so nothing written
 there can run or open another site. It fetches one article at a time, ten seconds apart,
