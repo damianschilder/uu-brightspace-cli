@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="uu: Utrecht University platforms from your terminal (Brightspace, Konjoin, Library)" width="100%">
+  <img src="assets/banner.svg" alt="uu: Utrecht University platforms from your terminal (Brightspace, Konjoin, Library, GitLab)" width="100%">
 </p>
 
 # UU CLI
@@ -14,6 +14,9 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
 - **Library** (`uu library`): journal articles. Opens an article through UU's library in a browser
   window and saves the PDF you, or the window itself, open there, or downloads Elsevier
   articles through Elsevier's API.
+- **[GitLab](https://git.science.uu.nl)** (`uu gitlab`): the Faculty of Science's GitLab.
+  Lists your projects, creates an empty private project for an existing repo and adds your
+  public SSH key.
 
 ## Features
 
@@ -24,7 +27,8 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
 - **Headless login** with cached session and token: type one code from your
   authenticator app, or let the CLI generate codes from your TOTP secret.
 - **One login for every platform** while UU's session lasts: after a Brightspace login,
-  Konjoin logs in without asking for another code.
+  Konjoin logs in without asking for another code. GitLab is the exception: it has its own
+  Solis-id sign-in, without a code.
 
 ## Limitations
 
@@ -33,7 +37,8 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
   window (`--auth browser`) shows UU's own login page, so push should work there, but it
   hasn't been tried yet.
 - **UU only.** The login flow is written for UU's Solis-id login page.
-- **Can break** if UU, D2L, SURFconext, Konjoin or UU's library proxy change their pages.
+- **Can break** if UU, D2L, SURFconext, Konjoin, UU's library proxy or GitLab change their
+  pages.
 
 ## Install
 
@@ -53,10 +58,11 @@ is the same as `uu brightspace <command>`.
 UU asks for your Solis-id, your password and a 6-digit code from your authenticator
 app. The CLI can answer the code step in two ways, or let you log in yourself, chosen
 with `--auth` (or `BRIGHTSPACE_AUTH`). Whichever you pick, the result is one UU session
-that every platform shares:
+that Brightspace, Konjoin and Library share. GitLab signs you in on its own page, with
+your Solis-id and password and no code ([GitLab](#gitlab)):
 
 <p align="center">
-  <img src="assets/login.svg" alt="Three ways through the code step (--auth prompt, totp-secret or browser) lead to one UU login, kept between runs and shared by Brightspace, Konjoin and Library" width="100%">
+  <img src="assets/login.svg" alt="Three ways through the code step (--auth prompt, totp-secret or browser) lead to one UU login, kept between runs and shared by Brightspace, Konjoin and Library. GitLab has its own sign-in: Solis-id and password, no code" width="100%">
 </p>
 
 | `--auth` | The code comes from | Good for |
@@ -256,6 +262,28 @@ and publishers can cut off the whole university when they see it. All three comm
 fetch only the articles you name, `open` and `get` one per run in a window you see, and
 `elsevier` pauses between them.
 
+### GitLab
+
+```sh
+uu gitlab login                               # Log in with your Solis-id and password
+uu gitlab projects                            # Your projects, with their SSH addresses
+uu gitlab create thesis                       # An empty private project, for an existing repo
+uu gitlab add-key                             # Add ~/.ssh/id_ed25519.pub to your account
+```
+
+This is the Faculty of Science's GitLab at `git.science.uu.nl`, primarily for the
+faculty's staff and students; others need a guest account, which a staff member requests.
+It doesn't use UU's login page: its own sign-in has a Solis-ID tab that checks your
+Solis-id and password, without a code from your authenticator app. So a login to another
+service doesn't carry over, and `save-creds` without a TOTP secret is enough.
+`--auth browser` opens that sign-in page in a window instead; you need it when you've
+turned on GitLab's own two-factor login.
+
+`create` makes a private project without a README, so the first push of an existing repo
+goes in as it is, and prints the `git remote add` line for it. With `--visibility internal`
+everyone who can log in to this GitLab sees it. `add-key` only reads a `.pub` file and
+opens no other, so a private key can't be sent by mistake. Optional: `UU_GITLAB_URL`.
+
 ## Docker
 
 ```sh
@@ -284,12 +312,14 @@ src/uu_cli/
                        the encrypted credentials file
   services/
     brightspace/       api.py (token, /d2l/api), commands.py, sync.py, sheets.py, cli.py
+    gitlab/            api.py (/api/v4 from a GitLab page, with its CSRF token),
+                       commands.py (its own Solis-ID sign-in), cli.py
     konjoin/           api.py (/api/project), commands.py, cli.py
     library/           proxy.py (the proxy, in a window), elsevier.py (the API),
                        articles.py (DOIs, saved PDFs), cli.py
 brightspace-cli.py     the old entry point, kept for existing scripts and the Docker image
 tests/                 pytest suite; fake_uu.py is an offline stand-in for UU's login,
-                       SURFconext, Brightspace, Konjoin and the library proxy
+                       SURFconext, Brightspace, Konjoin, the library proxy and GitLab
 ```
 
 A new platform is a package under `services/` with a `cli.py` exposing `main(argv, prog)`,
@@ -313,7 +343,7 @@ What might come next (timetable, Osiris grades, calendar feeds, …) is in
 ## Disclaimer
 
 Unofficial tool, not affiliated with or endorsed by Utrecht University, D2L, SURF,
-Konjoin, OCLC or Elsevier.
+Konjoin, OCLC, Elsevier or GitLab.
 Provided as is, without warranty. Use at your own risk.
 
 You are responsible for using it in line with your institution's regulations,
