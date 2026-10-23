@@ -1,17 +1,21 @@
-"""An offline stand-in for UU's Solis-id login, Brightspace, Konjoin and the library proxy, served
-through Playwright routing.
+"""An offline stand-in for UU's Solis-id login, Brightspace, Konjoin, the library proxy, UU's
+GitLab, edu.nl and SURFfilesender's login, served through Playwright routing.
 
 It models what the CLI relies on, not the real services: a NetIQ-style form with a one-time-code
 step and a single-sign-on session, SAML-style hops back that set a session cookie, a D2L token
-in localStorage, SURFconext's institution picker in front of Konjoin, the library proxy's login
-link in front of an article with a PDF, and the API endpoints the commands call. Every other
-request is aborted and redirects happen in the page, so nothing leaves the machine.
+in localStorage, SURFconext's institution picker in front of Konjoin, edu.nl and
+SURFfilesender, the library proxy's login link in front of an article with a PDF, GitLab's own
+Solis-ID sign-in with CSRF-checked API calls, edu.nl's shortening form and overview,
+SURFfilesender's profile page and client configuration, and the API endpoints the commands
+call. Every other request is aborted and redirects happen in the page, so nothing leaves the
+machine. (SURFfilesender's REST API isn't browser traffic: tests/test_filesender.py fakes it.)
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 from urllib.parse import parse_qs, urlparse
 
@@ -21,6 +25,9 @@ BRIGHTSPACE = "https://uu.brightspace.com"
 KONJOIN = "https://uu.konjoin.nl"
 SURFCONEXT = "https://engine.surfconext.nl"
 LIBRARY = "https://utrechtuniversity.idm.oclc.org"
+GITLAB = "https://git.science.uu.nl"
+EDUNL = "https://edu.nl"
+FILESENDER = "https://filesender.surf.nl"
 IDP = "https://login.uu.nl"
 SOLISID = "1234567"
 PASSWORD = "correct horse"
@@ -34,7 +41,12 @@ ACS = {
     "brightspace": f"{BRIGHTSPACE}/d2l/lp/auth/saml/acs",
     "konjoin": f"{KONJOIN}/saml2/acs",
     "library": f"{LIBRARY}/Shibboleth.sso/SAML2/POST",
+    "edunl": f"{EDUNL}/mellon/postResponse",
+    "filesender": f"{FILESENDER}/simplesaml/module.php/saml/sp/saml2-acs.php/default-sp",
 }
+
+# The services that reach UU's login through SURFconext's institution picker.
+VIA_SURFCONEXT = ("konjoin", "edunl", "filesender")
 
 # Lets the CLI's fetch() from about:blank reach the API, as a cached-token command does.
 CORS = {
@@ -59,7 +71,7 @@ OTP_FORM = """
 WAYF = f"""<h1>Select an institution to log in</h1>
 <ul>
   <li><a href="{SURFCONEXT}/wayf/umc">UMC Utrecht</a></li>
-  <li><a href="{IDP}/nidp/app/login?sp=konjoin">Utrecht University</a></li>
+  <li><a href="{IDP}/nidp/app/login?sp={{sp}}">Utrecht University</a></li>
 </ul>"""
 
 HOME = """<h1>My Home</h1>
@@ -135,9 +147,83 @@ CITATION_PDF = '<meta name="citation_pdf_url" content="{url}">'
 ARTICLE_PDF = b"%PDF-1.7\n% fake article\n"
 ISSUE_ZIP = b"PK\x03\x04% fake issue\n"
 
+# GitLab's sign-in page with its Solis-ID tab (LDAP), as served on 22-10-2026: GitLab's script
+# renders the password field into the placeholder after the page loads.
+GITLAB_SIGN_IN = """<head><meta name="csrf-token" content="{csrf}"></head>
+<div class="flash-container">{flash}</div>
+<form data-testid="new_ldap_user" action="/users/auth/ldapmain/callback" method="post">
+  <input type="hidden" name="authenticity_token" value="{csrf}">
+  <input id="ldapmain_username" name="username" type="text">
+  <input class="js-password" data-id="ldapmain_password" data-name="password">
+  <button data-testid="sign-in-button" type="submit">Sign in</button>
+</form>
+<script>
+  document.querySelector(".js-password").outerHTML =
+    '<input id="ldapmain_password" name="password" type="password">';
+</script>"""
+GITLAB_REFUSED = ('<div class="flash-alert">Could not authenticate you from Ldapmain because '
+                  f'"Invalid credentials for {SOLISID}".</div>')
+# The code step GitLab adds when you turned on its own two-factor login.
+GITLAB_TWO_FACTOR = """<form action="/users/sign_in" method="post">
+  <label for="user_otp_attempt">Verification code</label>
+  <input id="user_otp_attempt" name="user[otp_attempt]" type="text">
+</form>"""
+GITLAB_HOME = """<head><meta name="csrf-token" content="{csrf}"></head><h1>Projects</h1>
+<img src="https://secure.gravatar.com/avatar/0?s=32" alt="">"""
+# GitLab's CSRF token belongs to the session: a page loaded before the login carries the guest's.
+CSRF_GUEST, CSRF_SESSION = "csrf-guest", "csrf-session"
+GITLAB_USER = {"id": 7, "username": "student", "name": "Test Student"}
+
 # What Konjoin's real pages wait for before they count as loaded (seen 22-10-2026).
 THIRD_PARTY = """<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato">
 <script src="https://cdn.polyfill.io/v2/polyfill.min.js"></script>"""
+
+# edu.nl's pages, trimmed from what the site served on 22-10-2026.
+EDUNL_LOGOUT = '<div class="systray"><a href="/logout" aria-label="Logout">⏻</a></div>'
+EDUNL_FORM = """<form name="short_url" method="post" novalidate="novalidate">
+  <input type="url" id="short_url_longUrl" name="short_url[longUrl]" value="{value}">
+  {error}
+  <button class="btn btn-primary" type="submit">Shorten it!</button>
+  <input type="hidden" id="short_url__token" name="short_url[_token]" value="{csrf}">
+</form>"""
+EDUNL_URL_ERROR = ('<span class="invalid-feedback d-block"><span class="form-error-message">Oops, this '
+                   'is not quite a correct URL, possibly a typo or missing the http:// or https:// at '
+                   'the beginning of the URL!</span></span>')
+EDUNL_CREATED = """<h2>Your new link is ready to use</h2>
+Your new link is:<br/><b>{short}</b><br/><br/>
+This one refers to:<br/><b>{url}</b><br/><br/>
+<a href="#" class="cpy" data-clipboard-text="{short}">Copy</a>
+<form name="short_url" method="post" action="/manage/url/{code}/edit" class="form-inline">
+  <input type="hidden" name="_token" value="{csrf}">
+  <input type="hidden" name="short_url[longUrl]" value="{url}">
+  <input type="text" id="labelfield" name="short_url[label]" value="" required maxlength="255">
+  <button type="submit" class="btn btn-sm btn-secondary">Save</button>
+  <input type="hidden" id="short_url__token" name="short_url[_token]" value="{csrf}">
+</form>"""
+EDUNL_ROW = """<tr>
+  <td><button class="fabutton actieknop cpy" type="button" data-clipboard-text="{short}"></button>
+      <a href="/manage/url/{code}/edit">edit</a></td>
+  <th scope="row">{clicks}</th>
+  <td><a target="_blank" href="{short}">{short_text}</a></td>
+  <td>{date}</td>
+  <td class="text-truncate telang"><a href="{url}" target="_blank"></a> {url}</td>
+  <td class="text-truncate telang" title="{label}">{label}</td>
+</tr>"""
+EDUNL_CSRF = "edunl-csrf"
+EDUNL_PER_PAGE = 2
+
+# SURFfilesender: your id there and the API secret its profile page gives you (made up).
+FILESENDER_USER = "0123456789abcdef0123456789abcdef01234567"
+FILESENDER_SECRET = "fakesecret0fakesecret0fakesecret0fakesecret0fakesecret0fake0000"
+# What "Download Python CLI Client configuration" serves (clidownload.php?config=1).
+FILESENDER_INI = """[system]
+base_url = https://filesender.surf.nl/rest.php
+default_transfer_days_valid = 14
+
+[user]
+username = {user}
+apikey = {secret}
+"""
 
 
 def make_jwt(exp: float) -> str:
@@ -161,6 +247,17 @@ class FakeUU:
         self.clicks_pdf = True      # you, at the window, click "View PDF" (when by_hand)
         self.clicks_issue = False   # you click "Download full issue" instead
         self.elsewhere: list[str] = []  # requests for hosts this fake doesn't serve (aborted)
+        self.gitlab_logins = 0      # completed sign-ins at GitLab
+        self.gitlab_two_factor = False  # you turned on GitLab's own two-factor login
+        self.gitlab_api: list[str] = []  # "METHOD /path" of every API request GitLab received
+        self.gitlab_created: list[dict] = []  # what the CLI sent to create each project
+        self.gitlab_projects: list[dict] = []
+        self.gitlab_keys: list[dict] = []
+        self.edunl_logins = 0       # completed logins at edu.nl
+        self.edunl_links: list[dict] = []  # your links, newest first: code, url, label, clicks, date
+        self.edunl_posts: list[dict] = []  # every form edu.nl received
+        self.filesender_logins = 0  # completed logins at SURFfilesender
+        self.filesender_secret = FILESENDER_SECRET  # "" when your profile has none
 
     def install(self, ctx, by_hand: bool = False) -> None:
         """Serve the fake to ctx. by_hand: someone at this browser fills in UU's forms (--auth browser)."""
@@ -177,6 +274,9 @@ class FakeUU:
             KONJOIN: self._konjoin,
             SURFCONEXT: self._surfconext,
             LIBRARY: lambda *a: self._library(*a, by_hand=by_hand),
+            GITLAB: lambda *a: self._gitlab(*a, by_hand=by_hand),
+            EDUNL: self._edunl,
+            FILESENDER: self._filesender,
         }.get(origin)
         if handler:
             handler(route, req, url)
@@ -191,7 +291,7 @@ class FakeUU:
         query = parse_qs(url.query)
         sp = query.get("sp", ["brightspace"])[0]
         if req.method == "GET":
-            if sp == "konjoin":  # only SURFconext's picker links here
+            if sp in VIA_SURFCONEXT:  # only SURFconext's picker links here
                 self.wayf_choices += 1
             if "IDP_SESSION=" in _cookies(req):  # single sign-on: still logged in at UU
                 return _redirect(route, ACS[sp])
@@ -209,10 +309,11 @@ class FakeUU:
             return _redirect(route, ACS[sp], cookie="IDP_SESSION=1; Path=/")
         return _html(route, "<p>Wrong code.</p>" + OTP_FORM.format(sp=sp))
 
-    # ── SURFconext, in front of Konjoin ───────────────────────────────────────
+    # ── SURFconext, in front of Konjoin and edu.nl ────────────────────────────
     def _surfconext(self, route, req, url) -> None:
         if url.path.startswith("/authentication/idp/single-sign-on"):
-            return _html(route, WAYF)
+            sp = parse_qs(url.query).get("sp", ["konjoin"])[0]  # who asked, as the real request says
+            return _html(route, WAYF.format(sp=sp))
         route.fulfill(status=404, body="not found")
 
     # ── Brightspace ───────────────────────────────────────────────────────────
@@ -310,6 +411,141 @@ class FakeUU:
                 "Content-Type": "application/zip",
                 "Content-Disposition": 'attachment; filename="issue 12.zip"',
             })
+        route.fulfill(status=404, body="not found")
+
+    # ── GitLab (git.science.uu.nl) ────────────────────────────────────────────
+    def _gitlab(self, route, req, url, by_hand: bool = False) -> None:
+        path = url.path
+        logged_in = "_gitlab_session=in" in _cookies(req)
+        if path.startswith("/api/v4/"):
+            return self._gitlab_api(route, req, path.removeprefix("/api/v4"), logged_in)
+        if path == "/users/auth/ldapmain/callback" and req.method == "POST":
+            form = {k: v[0] for k, v in parse_qs(req.post_data or "").items()}
+            if (form.get("username"), form.get("password")) != (SOLISID, PASSWORD):
+                return _redirect(route, f"{GITLAB}/users/sign_in?failed=1")
+            if self.gitlab_two_factor:
+                return _html(route, GITLAB_TWO_FACTOR)
+            self.gitlab_logins += 1
+            return _redirect(route, f"{GITLAB}/", cookie="_gitlab_session=in; Path=/")
+        if path not in ("/", "/users/sign_in"):
+            return route.fulfill(status=404, body="not found")
+        if logged_in:
+            if path == "/users/sign_in":
+                return _redirect(route, f"{GITLAB}/")
+            return _html(route, GITLAB_HOME.format(csrf=CSRF_SESSION))
+        # A guest gets the sign-in page, at / too: GitLab's server-side redirect, in one step.
+        failed = "failed" in parse_qs(url.query)
+        page = GITLAB_SIGN_IN.format(csrf=CSRF_GUEST, flash=GITLAB_REFUSED if failed else "")
+        if by_hand and path == "/users/sign_in" and not failed:
+            page += _by_hand({"ldapmain_username": SOLISID, "ldapmain_password": PASSWORD})
+        _html(route, page)
+
+    def _gitlab_api(self, route, req, path, logged_in: bool) -> None:
+        self.gitlab_api.append(f"{req.method} {path}")
+        # A session cookie counts for a change only with the session's CSRF token.
+        verified = req.method in ("GET", "HEAD") or req.all_headers().get("x-csrf-token") == CSRF_SESSION
+        if not (logged_in and verified):
+            return _json(route, {"message": "401 Unauthorized"}, status=401)
+        body = json.loads(req.post_data or "null")
+        user = GITLAB_USER["username"]
+        if (req.method, path) == ("GET", "/user"):
+            return _json(route, GITLAB_USER)
+        if (req.method, path) == ("GET", "/projects"):
+            return _json(route, self.gitlab_projects)
+        if (req.method, path) == ("POST", "/projects"):
+            slug = body["name"].lower().replace(" ", "-")
+            if any(p["path"] == slug for p in self.gitlab_projects):
+                return _json(route, {"message": {"name": ["has already been taken"],
+                                                 "path": ["has already been taken"]}}, status=400)
+            self.gitlab_created.append(body)
+            project = {"id": len(self.gitlab_projects) + 1, "name": body["name"], "path": slug,
+                       "path_with_namespace": f"{user}/{slug}",
+                       "visibility": body.get("visibility", "private"),
+                       "web_url": f"{GITLAB}/{user}/{slug}",
+                       "ssh_url_to_repo": f"git@git.science.uu.nl:{user}/{slug}.git",
+                       "http_url_to_repo": f"{GITLAB}/{user}/{slug}.git"}
+            self.gitlab_projects.insert(0, project)
+            return _json(route, project, status=201)
+        if (req.method, path) == ("POST", "/user/keys"):
+            if any(k["key"] == body["key"] for k in self.gitlab_keys):
+                return _json(route, {"message": {"key": ["has already been taken"]}}, status=400)
+            self.gitlab_keys.append(body)
+            return _json(route, {"id": len(self.gitlab_keys), **body}, status=201)
+        _json(route, {"message": "404 Not Found"}, status=404)
+
+    # ── edu.nl ────────────────────────────────────────────────────────────────
+    def _edunl(self, route, req, url) -> None:
+        path, query = url.path, parse_qs(url.query)
+        if path == "/mellon/postResponse":
+            self.edunl_logins += 1
+            return _redirect(route, f"{EDUNL}/manage/", cookie="mellon-cookie=m3ll0n; Path=/")
+        if not path.startswith("/manage/"):
+            return route.fulfill(status=404, body="not found")
+        if "mellon-cookie=" not in _cookies(req):
+            return _redirect(route, f"{SURFCONEXT}/authentication/idp/single-sign-on?SAMLRequest=x&sp=edunl")
+        form = {k: v[0] for k, v in parse_qs(req.post_data or "").items()} if req.method == "POST" else {}
+        if req.method == "POST":
+            self.edunl_posts.append({"path": path, **form})
+            if EDUNL_CSRF not in (form.get("short_url[_token]"), form.get("_token")):
+                return route.fulfill(status=400, body="The CSRF token is invalid.")
+
+        if (req.method, path) == ("POST", "/manage/"):
+            long_url = form.get("short_url[longUrl]", "")
+            if not long_url.startswith(("http://", "https://")) or "." not in (urlparse(long_url).hostname or ""):
+                return _html(route, EDUNL_LOGOUT + EDUNL_FORM.format(
+                    value=long_url, error=EDUNL_URL_ERROR, csrf=EDUNL_CSRF))
+            code = f"c{len(self.edunl_links) + 1:04d}"
+            self.edunl_links.insert(0, {"code": code, "url": long_url, "label": "", "clicks": 0,
+                                        "date": "2026-10-22"})
+            return _redirect(route, f"{EDUNL}/manage/url/{code}/show")
+
+        one = re.fullmatch(r"/manage/url/([^/]+)/(show|edit)", path)
+        if one:
+            link = next((x for x in self.edunl_links if x["code"] == one[1]), None)
+            if link is None:
+                return route.fulfill(status=404, body="not found")
+            if one[2] == "show":
+                return _html(route, EDUNL_LOGOUT + EDUNL_CREATED.format(
+                    short=f"{EDUNL}/{link['code']}", url=link["url"], code=link["code"], csrf=EDUNL_CSRF))
+            if req.method == "POST":
+                link["label"] = form.get("short_url[label]", "")
+                return _redirect(route, f"{EDUNL}/manage/?updated=1")
+
+        overview = re.fullmatch(r"/manage/(?:page/(\d+))?", path)
+        if overview and req.method == "GET":
+            n = int(overview[1] or 1)
+            term = query.get("filterValue", [""])[0].lower()
+            found = [x for x in self.edunl_links if term in x["url"].lower() or term in x["label"].lower()]
+            rows = "".join(EDUNL_ROW.format(short=f"{EDUNL}/{x['code']}", short_text=f"edu.nl/{x['code']}", **x)
+                           for x in found[(n - 1) * EDUNL_PER_PAGE:n * EDUNL_PER_PAGE])
+            more = len(found) > n * EDUNL_PER_PAGE
+            alert = ('<div class="messages"><div class="alert alert-success">The URL was updated.</div></div>'
+                     if "updated" in query else "")
+            nav = f'<a href="/manage/page/{n + 1}">{n + 1}</a>' if more else ""
+            return _html(route, EDUNL_LOGOUT + alert + EDUNL_FORM.format(value="", error="", csrf=EDUNL_CSRF)
+                         + f'<table><tbody data-test="links">{rows}</tbody></table>'
+                         + f'<div class="navigation">{nav}</div>')
+        route.fulfill(status=404, body="not found")
+
+    # ── SURFfilesender's login and profile (its REST API is faked in test_filesender.py) ──
+    def _filesender(self, route, req, url) -> None:
+        path, query = url.path, parse_qs(url.query)
+        logged_in = "SimpleSAMLAuthToken=" in _cookies(req)
+        if path.startswith("/simplesaml/module.php/saml/sp/login/"):
+            return _redirect(route, f"{SURFCONEXT}/authentication/idp/single-sign-on?SAMLRequest=x&sp=filesender")
+        if path == urlparse(ACS["filesender"]).path:
+            self.filesender_logins += 1
+            return _redirect(route, f"{FILESENDER}/?s=user", cookie="SimpleSAMLAuthToken=t0k; Path=/")
+        if path == "/":
+            if logged_in:
+                return _html(route, "<h1>My profile</h1><h2>Remote authentication</h2>"
+                                    '<a href="clidownload.php?config=1">Download Python CLI Client configuration</a>')
+            return _html(route, '<h1>Welkom bij SURFfilesender!</h1><a id="btn_logon" href="#">Aanmelden</a>')
+        if path == "/clidownload.php" and query.get("config") == ["1"]:
+            if not logged_in:
+                return route.fulfill(status=500, body="Authentication required")
+            ini = FILESENDER_INI.format(user=FILESENDER_USER, secret=self.filesender_secret)
+            return route.fulfill(status=200, body=ini, headers={"Content-Type": "text/plain; charset=utf-8"})
         route.fulfill(status=404, body="not found")
 
 
