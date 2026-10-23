@@ -1,13 +1,14 @@
 """An offline stand-in for UU's Solis-id login, Brightspace, Konjoin, the library proxy, UU's
-GitLab and edu.nl, served through Playwright routing.
+GitLab, edu.nl and SURFfilesender's login, served through Playwright routing.
 
 It models what the CLI relies on, not the real services: a NetIQ-style form with a one-time-code
 step and a single-sign-on session, SAML-style hops back that set a session cookie, a D2L token
-in localStorage, SURFconext's institution picker in front of Konjoin and edu.nl, the library
-proxy's login link in front of an article with a PDF, GitLab's own Solis-ID sign-in with
-CSRF-checked API calls, edu.nl's shortening form and overview, and the API endpoints the
-commands call. Every other request is aborted and redirects happen in the page, so nothing
-leaves the machine.
+in localStorage, SURFconext's institution picker in front of Konjoin, edu.nl and
+SURFfilesender, the library proxy's login link in front of an article with a PDF, GitLab's own
+Solis-ID sign-in with CSRF-checked API calls, edu.nl's shortening form and overview,
+SURFfilesender's profile page and client configuration, and the API endpoints the commands
+call. Every other request is aborted and redirects happen in the page, so nothing leaves the
+machine. (SURFfilesender's REST API isn't browser traffic: tests/test_filesender.py fakes it.)
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ SURFCONEXT = "https://engine.surfconext.nl"
 LIBRARY = "https://utrechtuniversity.idm.oclc.org"
 GITLAB = "https://git.science.uu.nl"
 EDUNL = "https://edu.nl"
+FILESENDER = "https://filesender.surf.nl"
 IDP = "https://login.uu.nl"
 SOLISID = "1234567"
 PASSWORD = "correct horse"
@@ -40,10 +42,11 @@ ACS = {
     "konjoin": f"{KONJOIN}/saml2/acs",
     "library": f"{LIBRARY}/Shibboleth.sso/SAML2/POST",
     "edunl": f"{EDUNL}/mellon/postResponse",
+    "filesender": f"{FILESENDER}/simplesaml/module.php/saml/sp/saml2-acs.php/default-sp",
 }
 
 # The services that reach UU's login through SURFconext's institution picker.
-VIA_SURFCONEXT = ("konjoin", "edunl")
+VIA_SURFCONEXT = ("konjoin", "edunl", "filesender")
 
 # Lets the CLI's fetch() from about:blank reach the API, as a cached-token command does.
 CORS = {
@@ -206,6 +209,19 @@ EDUNL_ROW = """<tr>
 EDUNL_CSRF = "edunl-csrf"
 EDUNL_PER_PAGE = 2
 
+# SURFfilesender: your id there and the API secret its profile page gives you (made up).
+FILESENDER_USER = "0123456789abcdef0123456789abcdef01234567"
+FILESENDER_SECRET = "fakesecret0fakesecret0fakesecret0fakesecret0fakesecret0fake0000"
+# What "Download Python CLI Client configuration" serves (clidownload.php?config=1).
+FILESENDER_INI = """[system]
+base_url = https://filesender.surf.nl/rest.php
+default_transfer_days_valid = 14
+
+[user]
+username = {user}
+apikey = {secret}
+"""
+
 
 def make_jwt(exp: float) -> str:
     """An unsigned JWT with an 'exp' claim, enough for the CLI's expiry check."""
@@ -236,6 +252,8 @@ class FakeUU:
         self.edunl_logins = 0       # completed logins at edu.nl
         self.edunl_links: list[dict] = []  # your links, newest first: code, url, label, clicks, date
         self.edunl_posts: list[dict] = []  # every form edu.nl received
+        self.filesender_logins = 0  # completed logins at SURFfilesender
+        self.filesender_secret = FILESENDER_SECRET  # "" when your profile has none
 
     def install(self, ctx, by_hand: bool = False) -> None:
         """Serve the fake to ctx. by_hand: someone at this browser fills in UU's forms (--auth browser)."""
@@ -254,6 +272,7 @@ class FakeUU:
             LIBRARY: lambda *a: self._library(*a, by_hand=by_hand),
             GITLAB: lambda *a: self._gitlab(*a, by_hand=by_hand),
             EDUNL: self._edunl,
+            FILESENDER: self._filesender,
         }.get(origin)
         if handler:
             handler(route, req, url)
@@ -496,6 +515,27 @@ class FakeUU:
             return _html(route, EDUNL_LOGOUT + alert + EDUNL_FORM.format(value="", error="", csrf=EDUNL_CSRF)
                          + f'<table><tbody data-test="links">{rows}</tbody></table>'
                          + f'<div class="navigation">{nav}</div>')
+        route.fulfill(status=404, body="not found")
+
+    # ── SURFfilesender's login and profile (its REST API is faked in test_filesender.py) ──
+    def _filesender(self, route, req, url) -> None:
+        path, query = url.path, parse_qs(url.query)
+        logged_in = "SimpleSAMLAuthToken=" in _cookies(req)
+        if path.startswith("/simplesaml/module.php/saml/sp/login/"):
+            return _redirect(route, f"{SURFCONEXT}/authentication/idp/single-sign-on?SAMLRequest=x&sp=filesender")
+        if path == urlparse(ACS["filesender"]).path:
+            self.filesender_logins += 1
+            return _redirect(route, f"{FILESENDER}/?s=user", cookie="SimpleSAMLAuthToken=t0k; Path=/")
+        if path == "/":
+            if logged_in:
+                return _html(route, "<h1>My profile</h1><h2>Remote authentication</h2>"
+                                    '<a href="clidownload.php?config=1">Download Python CLI Client configuration</a>')
+            return _html(route, '<h1>Welkom bij SURFfilesender!</h1><a id="btn_logon" href="#">Aanmelden</a>')
+        if path == "/clidownload.php" and query.get("config") == ["1"]:
+            if not logged_in:
+                return route.fulfill(status=500, body="Authentication required")
+            ini = FILESENDER_INI.format(user=FILESENDER_USER, secret=self.filesender_secret)
+            return route.fulfill(status=200, body=ini, headers={"Content-Type": "text/plain; charset=utf-8"})
         route.fulfill(status=404, body="not found")
 
 

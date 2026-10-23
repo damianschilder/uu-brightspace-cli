@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="uu: Utrecht University platforms from your terminal (Brightspace, Konjoin, Library, GitLab, edu.nl)" width="100%">
+  <img src="assets/banner.svg" alt="uu: Utrecht University platforms from your terminal (Brightspace, Konjoin, Library, GitLab, edu.nl, SURFfilesender)" width="100%">
 </p>
 
 # UU CLI
@@ -19,6 +19,8 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
   public SSH key.
 - **[edu.nl](https://edu.nl)** (`uu edunl`): SURF's URL shortener for education and research.
   Makes a short link, with an optional label, and lists yours.
+- **[SURFfilesender](https://filesender.surf.nl)** (`uu filesender`): sends large files to named
+  people for a short while, optionally encrypted, and lists your transfers.
 
 ## Features
 
@@ -29,8 +31,8 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
 - **Headless login** with cached session and token: type one code from your
   authenticator app, or let the CLI generate codes from your TOTP secret.
 - **One login for every platform** while UU's session lasts: after a Brightspace login,
-  Konjoin and edu.nl log in without asking for another code. GitLab is the exception: it has
-  its own Solis-id sign-in, without a code.
+  Konjoin, edu.nl and SURFfilesender log in without asking for another code. GitLab is the
+  exception: it has its own Solis-id sign-in, without a code.
 
 ## Limitations
 
@@ -39,8 +41,8 @@ Headless CLI for Utrecht University platforms, logged in with your Solis-id:
   window (`--auth browser`) shows UU's own login page, so push should work there, but it
   hasn't been tried yet.
 - **UU only.** The login flow is written for UU's Solis-id login page.
-- **Can break** if UU, D2L, SURFconext, Konjoin, UU's library proxy, GitLab or edu.nl change
-  their pages.
+- **Can break** if UU, D2L, SURFconext, Konjoin, UU's library proxy, GitLab, edu.nl or
+  SURFfilesender change their pages.
 
 ## Install
 
@@ -64,7 +66,7 @@ that Brightspace, Konjoin and Library share. GitLab signs you in on its own page
 your Solis-id and password and no code ([GitLab](#gitlab)):
 
 <p align="center">
-  <img src="assets/login.svg" alt="Three ways through the code step (--auth prompt, totp-secret or browser) lead to one UU login, kept between runs and shared by Brightspace, Konjoin, Library and edu.nl. GitLab has its own sign-in: Solis-id and password, no code" width="100%">
+  <img src="assets/login.svg" alt="Three ways through the code step (--auth prompt, totp-secret or browser) lead to one UU login, kept between runs and shared by Brightspace, Konjoin, Library, edu.nl and SURFfilesender. GitLab has its own sign-in: Solis-id and password, no code" width="100%">
 </p>
 
 | `--auth` | The code comes from | Good for |
@@ -309,6 +311,44 @@ out again ([support](https://edu.nl/support)). Change where a link points, or de
 site; questions go to kort@surf.nl. edu.nl publishes no terms of use beyond those two pages
 (checked 22-10-2026), and none about scripts. Optional: `UU_EDUNL_URL`.
 
+### SURFfilesender
+
+```sh
+uu filesender login                                         # Once: keeps your API details
+uu filesender send notes.zip --to name@uu.nl --accept-terms
+uu filesender send a.pdf b.pdf --to x@uu.nl,y@uu.nl --days 7 --encrypt --accept-terms
+uu filesender transfers                                     # Yours that haven't expired
+```
+
+[SURFfilesender](https://filesender.surf.nl) sends large files to people you name by email;
+they get a download link. `login` goes through SURFconext and UU's Solis-id page like the
+other services, opens your profile page (which makes an API secret when you have none) and
+keeps your username and secret in `filesender.json` next to the token, owner-only. You never
+copy the secret yourself; made a new one on the site? Run `login` again. Or set
+`UU_FILESENDER_USER` and `UU_FILESENDER_API_SECRET`. From then on `send` and `transfers` use
+FileSender's REST API, signed with that secret as SURF's own
+[Python client](https://github.com/filesender/filesender/blob/master/scripts/client/filesender.py)
+signs it, without a browser.
+
+What SURF's [code of conduct](https://servicedesk.surf.nl/wiki/spaces/WIKI/pages/198967771/Huisregels+Code+of+Conduct)
+(version 3, 30-03-2026) means here:
+
+- **You accept it for every transfer.** The upload page has you tick a box each time, and the
+  server checks it; `send` only ticks it with `--accept-terms`.
+- **Files aren't encrypted unless you encrypt them**, and the code says not to send
+  confidential content without. `--encrypt` encrypts in the CLI, as the website does
+  (AES-GCM, files up to 2 GB): you type a password twice (or set `UU_FILESENDER_PASSWORD`; never
+  a flag), and give it to the recipients another way than email. They type it on the download
+  page.
+- **Files are deleted** when the transfer expires: 14 days by default, at most 21 (`--days`),
+  SURF's settings on 22-10-2026.
+- **SURF logs** your address, the file names and the recipients for 4 months. Keep names of
+  people out of file names.
+- **Short-term sending only**: not storage, no back-up.
+
+SURF has no separate policy for the API (its `api_secret_aup_enabled` is off). Optional:
+`UU_FILESENDER_URL` for another FileSender.
+
 ## Docker
 
 ```sh
@@ -338,6 +378,8 @@ src/uu_cli/
   services/
     brightspace/       api.py (token, /d2l/api), commands.py, sync.py, sheets.py, cli.py
     edunl/             api.py (the /manage/ form and overview, no API), commands.py, cli.py
+    filesender/        api.py (the signed REST API, encryption), commands.py (login through
+                       the profile page), cli.py
     gitlab/            api.py (/api/v4 from a GitLab page, with its CSRF token),
                        commands.py (its own Solis-ID sign-in), cli.py
     konjoin/           api.py (/api/project), commands.py, cli.py
@@ -345,7 +387,8 @@ src/uu_cli/
                        articles.py (DOIs, saved PDFs), cli.py
 brightspace-cli.py     the old entry point, kept for existing scripts and the Docker image
 tests/                 pytest suite; fake_uu.py is an offline stand-in for UU's login,
-                       SURFconext, Brightspace, Konjoin, the library proxy, GitLab and edu.nl
+                       SURFconext, Brightspace, Konjoin, the library proxy, GitLab, edu.nl and
+                       SURFfilesender's login; test_filesender.py fakes its REST API
 ```
 
 A new platform is a package under `services/` with a `cli.py` exposing `main(argv, prog)`,
