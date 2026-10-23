@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fake_uu import ARTICLE_PDF
+from fake_uu import ARTICLE_PDF, ISSUE_ZIP
 from uu_cli.services.brightspace.cli import main as brightspace
 from uu_cli.services.library import articles, elsevier, proxy
 from uu_cli.services.library.cli import main as library
@@ -109,6 +109,49 @@ def test_open_gives_up_without_a_pdf(window, fake_uu, state, monkeypatch, capsys
     assert len(window) == 1 and not window[0].browser.is_connected()
 
 
+@pytest.mark.browser
+def test_a_download_that_is_not_a_pdf_is_kept_but_is_not_the_article(window, fake_uu, state,
+                                                                       monkeypatch, capsys):
+    # ScienceDirect's "Download full issue": a ZIP with every article of the issue.
+    fake_uu.clicks_issue = True
+    monkeypatch.setattr(proxy, "WINDOW_TIMEOUT_S", 2)
+
+    code, _, err = run(library, ["open", DOI, "-o", str(state)], capsys)
+
+    assert code == 1 and "No PDF saved" in err
+    assert (state / "issue_12.zip").read_bytes() == ISSUE_ZIP
+    assert "[LIBRARY] Download: issue 12.zip" in err
+    assert f"Kept {state / 'issue_12.zip'}: it's a ZIP archive (" in err
+
+
+@pytest.mark.browser
+def test_the_window_says_where_it_goes_but_not_the_query(window, fake_uu, state, capsys):
+    fake_uu.clicks_pdf = False
+
+    code, _, err = run(library, ["get", DOI, "-o", str(state)], capsys)
+
+    assert code == 0, err
+    assert "[LIBRARY] Page: utrechtuniversity.idm.oclc.org/article\n" in err
+    assert "auth=uushibboleth" not in err  # a query can hold a login ticket or a signed link
+
+
+def test_ctrl_c_is_not_hidden_by_the_window_closing(tmp_path, monkeypatch):
+    # Ctrl+C stops Playwright's driver too, so closing the window fails as well; the Ctrl+C
+    # must still come through, for `watch` to stop quietly.
+    def interrupted(*_):
+        raise KeyboardInterrupt
+
+    def driver_gone(*_):
+        raise Exception("Browser.close: Connection closed while reading from the driver")
+
+    window = SimpleNamespace(on=lambda *_: None, new_page=interrupted,
+                             browser=SimpleNamespace(close=driver_gone))
+    monkeypatch.setattr(proxy.browser, "open_window", lambda ctx: window)
+
+    with pytest.raises(KeyboardInterrupt):
+        proxy.open_article(None, f"https://doi.org/{DOI}", tmp_path, DOI)
+
+
 @pytest.mark.parametrize("argv", [["open", DOI], ["get", DOI], ["watch"]])
 def test_the_window_needs_a_screen(argv, monkeypatch, capsys):
     monkeypatch.setattr(sys, "platform", "linux")
@@ -174,7 +217,7 @@ def test_get_asks_you_to_take_over_when_the_pdf_does_not_come(window, fake_uu, s
     assert "didn't come by itself: open or download it in the window" in err
 
 
-# ── uu library watch: get, for every DOI an agent adds to a list ───────────────
+# ── uu library watch: get, for every DOI added to a list ───────────────────────
 
 CHAPTER = "10.1007/978-3-319-75553-3_9"
 
@@ -243,6 +286,21 @@ def test_watch_logs_a_window_without_a_pdf(window, fake_uu, state, wanted, monke
 
     assert code == 0, err
     assert (state / "watch.log").read_text() == f"{DOI}\tno PDF\n"
+
+
+@pytest.mark.browser
+def test_watch_logs_what_it_kept_when_no_pdf_came(window, fake_uu, state, wanted, monkeypatch,
+                                                  capsys):
+    fake_uu.clicks_issue = True
+    fake_uu.citation_pdf_url = None
+    monkeypatch.setattr(proxy, "WINDOW_TIMEOUT_S", 2)
+    wanted(DOI)
+
+    code, _, err = run(library, ["watch", "-o", str(state), "--max", "1"], capsys)
+
+    assert code == 0, err
+    assert (state / "watch.log").read_text() == (
+        f"{DOI}\tno PDF; kept {(state / 'issue_12.zip').resolve()}\n")
 
 
 # ── uu library elsevier: Elsevier's API ────────────────────────────────────────

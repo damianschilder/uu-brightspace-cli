@@ -48,8 +48,8 @@ def _one_article(args, fetch: bool) -> int:
     then = "the PDF opens by itself" if fetch else "open or download the PDF"
     print(f"[LIBRARY] Opening the article through UU's library. Log in there if UU asks, then "
           f"{then}; it's saved to {out}/.", file=sys.stderr)
-    saved = _in_window(url, articles.doi_of(args.article), out, args.session_dir, fetch,
-                       keep_open=getattr(args, "keep_open", False))
+    saved, _ = _in_window(url, articles.doi_of(args.article), out, args.session_dir, fetch,
+                          keep_open=getattr(args, "keep_open", False))
     if not saved:
         print("No PDF saved.", file=sys.stderr)
         return 1
@@ -59,9 +59,10 @@ def _one_article(args, fetch: bool) -> int:
 def cmd_watch(args) -> int:
     """Fetch, as `get` does, each DOI added to wanted.txt in the output folder, until stopped.
 
-    For an AI agent whose sandbox can't open a window: you start this in your own terminal,
-    the agent adds DOIs to the list and reads the result from watch.log, one line per entry:
-    "<doi><TAB><saved file>", or "no PDF" / "not a DOI" in place of the file. Only DOIs are
+    A reading list: you leave this running in a terminal, add DOIs to the list whenever you
+    come across one, and find the result in watch.log, one line per entry:
+    "<doi><TAB><saved file>", or "no PDF" / "not a DOI" in place of the file; "no PDF; kept
+    <files>" names what was downloaded in the window that isn't a PDF. Only DOIs are
     taken from the list, and only their doi.org links are opened, so nothing written there
     can run or open another site.
     """
@@ -88,9 +89,12 @@ def cmd_watch(args) -> int:
             else:
                 time.sleep(max(0.0, last + WATCH_PAUSE_S - time.monotonic()))
                 print(f"[WATCH] {doi}", file=sys.stderr)
-                saved = _in_window(articles.article_url(doi), doi, out, args.session_dir, fetch=True)
+                saved, others = _in_window(articles.article_url(doi), doi, out, args.session_dir,
+                                           fetch=True)
                 fetched, last = fetched + 1, time.monotonic()
                 result = str(saved[0].resolve()) if saved else "no PDF"
+                if others and not saved:
+                    result += "; kept " + ", ".join(str(p.resolve()) for p in others)
             with log.open("a", encoding="utf-8") as f:
                 f.write(f"{doi or ref}\t{result}\n")
     except KeyboardInterrupt:
@@ -131,7 +135,7 @@ def _has_screen(cmd: str) -> bool:
 
 
 def _in_window(url: str, doi: str | None, out: Path, session_dir: str, fetch: bool,
-               keep_open: bool = False) -> list[Path]:
+               keep_open: bool = False) -> tuple[list[Path], list[Path]]:
     with sync_playwright() as pw:
         ctx = browser.launch(pw, session_dir)
         try:
@@ -201,8 +205,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> None:
     _window_args(ge)
 
     wa = sub.add_parser("watch", help=f"Fetch, as get does, every DOI added to {WANTED} in the "
-                                      "output folder, for an AI agent that can't open a window "
-                                      "itself; Ctrl+C stops")
+                                      "output folder, a reading list; Ctrl+C stops")
     wa.add_argument("-o", "--output", default=".",
                     help=f"Folder for the PDFs, {WANTED} and {WATCH_LOG} (default: here)")
     wa.add_argument("--max", type=int, default=WATCH_MAX,
