@@ -418,4 +418,4 @@ Provided as is, without warranty. Use at your own risk.
 You are responsible for using it in line with your institution's regulations,
 including its IT rules, rules on credentials and MFA, and the copyright on course
 materials. Only access content you're authorised to see, and keep downloads for
-personal study.
+personal study. The rules we know of are linked in [POLICIES.md](POLICIES.md).
